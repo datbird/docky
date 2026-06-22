@@ -2,7 +2,6 @@
   "name": "Docky",
   "author": "datbird",
   "flags": [],
-  "api_version": 1,
   "publish": {
     "tags": ["dock", "automation", "retrodeck", "pcsx2", "actions"],
     "description": "Config-driven Steam Deck automation: Tasks → Actions → Modes, with auto dock detection. Built-in tasks (e.g. set a PCSX2 controller profile) plus file ops and bash/python/binary runners.",

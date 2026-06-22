@@ -4,6 +4,35 @@ import decky
 import docky
 
 
+async def _dock_watch():
+    # Poll dock state; on a transition (while auto-dock is enabled) activate the
+    # mapped mode. Emulator-guarded so it won't clobber a live PCSX2. Module-level
+    # (NOT a Plugin method) — Decky's class wrapping breaks self.method() calls.
+    while True:
+        poll = 3
+        try:
+            cfg = docky.load_config()
+            s = cfg["settings"]
+            poll = max(1, int(s.get("pollSeconds", 3)))
+            if s.get("autoDockDetection"):
+                st = docky.load_state()
+                docked = docky.is_docked()
+                last = st.get("lastDock")
+                if last is not None and docked != last:
+                    mode = s["dockedMode"] if docked else s["undockedMode"]
+                    decky.logger.info("auto-dock: %s -> mode '%s'",
+                                      "docked" if docked else "undocked", mode)
+                    docky.activate_mode(mode, allow_running_emu=False)
+                st["lastDock"] = docked
+                docky.save_state(st)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            decky.logger.exception("dock watch error")
+            poll = 5
+        await asyncio.sleep(poll)
+
+
 class Plugin:
     _watch_task = None
 
@@ -60,36 +89,8 @@ class Plugin:
 
     async def _main(self):
         docky.load_config()  # ensure default exists
-        self._watch_task = asyncio.create_task(self._dock_watch())
+        self._watch_task = asyncio.create_task(_dock_watch())
         decky.logger.info("Docky loaded; config=%s", docky.CONFIG_PATH)
-
-    async def _dock_watch(self):
-        # Poll dock state; on a transition (while auto-dock is enabled) activate
-        # the mapped mode. Emulator-guarded so it won't clobber a live PCSX2.
-        while True:
-            poll = 3
-            try:
-                cfg = docky.load_config()
-                s = cfg["settings"]
-                poll = max(1, int(s.get("pollSeconds", 3)))
-                if s.get("autoDockDetection"):
-                    st = docky.load_state()
-                    docked = docky.is_docked()
-                    last = st.get("lastDock")
-                    if last is not None and docked != last:
-                        mode = s["dockedMode"] if docked else s["undockedMode"]
-                        decky.logger.info(
-                            "auto-dock: %s -> mode '%s'",
-                            "docked" if docked else "undocked", mode)
-                        docky.activate_mode(mode, allow_running_emu=False)
-                    st["lastDock"] = docked
-                    docky.save_state(st)
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # noqa: BLE001
-                decky.logger.exception("dock watch error")
-                poll = 5
-            await asyncio.sleep(poll)
 
     async def _unload(self):
         if self._watch_task:
