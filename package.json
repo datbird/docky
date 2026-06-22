@@ -1,0 +1,10 @@
+{
+  "name": "docky",
+  "version": "0.1.0",
+  "description": "Config-driven Steam Deck automation: Tasks -> Actions -> Modes with auto dock detection.",
+  "author": "datbird",
+  "license": "MIT",
+  "scripts": {
+    "build": "echo 'prebuilt: dist/index.js is hand-authored (no node toolchain on device)'"
+  }
+}
