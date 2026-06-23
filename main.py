@@ -1,6 +1,18 @@
 import asyncio
+import os
+import pwd
 
 import decky
+
+# Decky runs this plugin's backend as ROOT (plugin.json flags:["root"]). Pin HOME
+# to the deck user's home BEFORE importing the engine, so every "~"/expanduser it
+# uses (config dir, PCSX2 paths, plugins dir, and ~ in user task paths) resolves
+# to /home/deck rather than /root.
+try:
+    os.environ["HOME"] = os.environ.get("DECKY_USER_HOME") or pwd.getpwnam("deck").pw_dir
+except KeyError:
+    pass
+
 import docky
 
 

@@ -140,6 +140,18 @@ const AddTask: VFC<{
         />
       );
     }
+    if (f.kind === "select") {
+      const opts = f.options || [];
+      return (
+        <DropdownItem
+          key={f.key}
+          label={f.label}
+          rgOptions={opts}
+          selectedOption={vals[f.key] ?? (opts[0] ? opts[0].data : "")}
+          onChange={(o) => setField(f.key, o.data)}
+        />
+      );
+    }
     return (
       <TextRow key={f.key} label={f.label} value={vals[f.key]} onChange={(val) => setField(f.key, val)} />
     );

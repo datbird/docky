@@ -1,12 +1,13 @@
 import { Task } from "./util";
 
-export type FieldKind = "text" | "bool" | "profile";
+export type FieldKind = "text" | "bool" | "profile" | "select";
 
 export interface TaskField {
   key: string;
   kind: FieldKind;
   label: string;
   def?: boolean;
+  options?: { data: string; label: string }[];
 }
 // Global, per-task-type settings (NOT per-task) — edited via the gear next to
 // the task-type dropdown, stored in config.taskSettings[type].
@@ -66,6 +67,34 @@ export const TASK_DEFS: TaskTypeDef[] = [
       { key: "enabled", kind: "bool", label: "Force composition on" },
     ],
     summary: (t) => "Sunshine composition: " + (t.enabled ? "on" : "off"),
+  },
+  {
+    type: "sunshine_stop",
+    label: "Sunshine: stop streaming",
+    builtin: true,
+    requiresPlugin: "decky-sunshine",
+    fields: [],
+    summary: () => "Sunshine: stop",
+  },
+  {
+    type: "sunshine_encoder",
+    label: "Sunshine: set video encoder",
+    builtin: true,
+    requiresPlugin: "decky-sunshine",
+    fields: [
+      {
+        key: "encoder",
+        kind: "select",
+        label: "Encoder",
+        options: [
+          { data: "", label: "Auto" },
+          { data: "vaapi", label: "VAAPI (recommended)" },
+          { data: "vulkan", label: "Vulkan" },
+          { data: "software", label: "Software (CPU)" },
+        ],
+      },
+    ],
+    summary: (t) => "Sunshine encoder: " + (t.encoder || "auto"),
   },
   {
     type: "run",

@@ -92,6 +92,9 @@ def save_config(cfg):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
     os.replace(tmp, CONFIG_PATH)
+    # Keep the config user-owned/editable even though the backend runs as root.
+    _chown_to_parent(CONFIG_DIR)
+    _chown_to_parent(CONFIG_PATH)
 
 
 def load_state():
@@ -104,12 +107,55 @@ def save_state(state):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2)
     os.replace(tmp, STATE_PATH)
+    _chown_to_parent(CONFIG_DIR)
+    _chown_to_parent(STATE_PATH)
 
 
 # ---------------- helpers ----------------
 
 def _p(path):
     return os.path.expanduser(os.path.expandvars(path)) if path else path
+
+
+def _chown_to_parent(path):
+    """When running as root, give a freshly created file/link the same owner as
+    its parent directory (usually 'deck'), so user-space stays able to read/edit
+    it. No-op when not root or on error."""
+    try:
+        if os.geteuid() != 0:
+            return
+        parent = os.path.dirname(os.path.abspath(path)) or "."
+        st = os.stat(parent)
+        os.chown(path, st.st_uid, st.st_gid, follow_symlinks=False)
+    except OSError:
+        pass
+
+
+# The *streaming* Sunshine is launched as root by decky-sunshine, so it reads its
+# config from root's home.
+SUNSHINE_APP_ID = "dev.lizardbyte.app.Sunshine"
+SUNSHINE_CONF = "/root/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf"
+
+
+def _set_sunshine_encoder(value):
+    """Set 'encoder = <value>' in the (root) Sunshine config; '' removes it
+    (auto). Takes effect on the next Sunshine start. Returns (ok, message)."""
+    if value not in ("", "vaapi", "vulkan", "software"):
+        return False, "invalid encoder: %r" % value
+    try:
+        lines = []
+        if os.path.isfile(SUNSHINE_CONF):
+            with open(SUNSHINE_CONF, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        out = [ln for ln in lines if ln.split("=", 1)[0].strip().lower() != "encoder"]
+        if value:
+            out.append("encoder = %s" % value)
+        os.makedirs(os.path.dirname(SUNSHINE_CONF), exist_ok=True)
+        with open(SUNSHINE_CONF, "w", encoding="utf-8") as f:
+            f.write("\n".join(out) + "\n")
+        return True, "encoder set to %s (applies on next Sunshine start)" % (value or "auto")
+    except OSError as e:
+        return False, "could not write sunshine.conf: %s" % e
 
 
 def _run_proc(argv, shell=False, cwd=None, timeout=DEFAULT_TIMEOUT, env=None):
@@ -152,12 +198,14 @@ def run_task(task, allow_running_emu=True):
             src, dest = _p(task["src"]), _p(task["dest"])
             os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
             shutil.copy2(src, dest)
+            _chown_to_parent(dest)
             r.update(ok=True, message="copied -> %s" % dest)
 
         elif t == "move":
             src, dest = _p(task["src"]), _p(task["dest"])
             os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
             shutil.move(src, dest)
+            _chown_to_parent(dest)
             r.update(ok=True, message="moved -> %s" % dest)
 
         elif t == "symlink":
@@ -170,6 +218,7 @@ def run_task(task, allow_running_emu=True):
                         r.update(message="link path is a directory; refused")
                         return r
             os.symlink(target, link)
+            _chown_to_parent(link)
             r.update(ok=True, message="symlink %s -> %s" % (link, target))
 
         elif t == "write":
@@ -179,6 +228,7 @@ def run_task(task, allow_running_emu=True):
                 f.write(task.get("content", ""))
             if task.get("mode"):
                 os.chmod(path, int(str(task["mode"]), 8))
+            _chown_to_parent(path)
             r.update(ok=True, message="wrote %s" % path)
 
         elif t == "delete":
@@ -220,19 +270,31 @@ def run_task(task, allow_running_emu=True):
 
         elif t == "sunshine_composition":
             # Force (or release) gamescope composition so a docked Sunshine stream
-            # isn't squeezed/stretched. Docky runs as `deck`, so we can set the
-            # GAMESCOPE_COMPOSITE_FORCE atom on :0 directly (no su/root needed).
+            # isn't squeezed/stretched. The backend runs as root, so set the atom
+            # as the session user 'deck' (xprop needs the deck-owned display :0).
             on = bool(task.get("enabled"))
             val = "1" if on else "0"
-            env = dict(os.environ)
-            env.setdefault("DISPLAY", ":0")
             subprocess.run(
-                ["xprop", "-root", "-f", "GAMESCOPE_COMPOSITE_FORCE", "32c",
-                 "-set", "GAMESCOPE_COMPOSITE_FORCE", val],
-                env=env, check=True,
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                ["su", "deck", "-c",
+                 "DISPLAY=:0 xprop -root -f GAMESCOPE_COMPOSITE_FORCE 32c "
+                 "-set GAMESCOPE_COMPOSITE_FORCE " + val],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
             )
             r.update(ok=True, message="composition forced %s" % ("on" if on else "off"))
+
+        elif t == "sunshine_stop":
+            # Backend runs as root, so it can kill the root-launched system flatpak.
+            proc = subprocess.run(["flatpak", "kill", SUNSHINE_APP_ID],
+                                  capture_output=True, text=True)
+            if proc.returncode == 0:
+                r.update(ok=True, message="Sunshine stopped")
+            else:
+                # Most often "not running" — fine for dock automation, not a failure.
+                r.update(ok=True, skipped=True, message="Sunshine not running")
+
+        elif t == "sunshine_encoder":
+            ok, msg = _set_sunshine_encoder(task.get("encoder", ""))
+            r.update(ok=ok, message=msg)
 
         else:
             r.update(message="unknown task type: %r" % t)

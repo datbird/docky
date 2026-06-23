@@ -96,6 +96,34 @@
             summary: (t) => "Sunshine composition: " + (t.enabled ? "on" : "off"),
         },
         {
+            type: "sunshine_stop",
+            label: "Sunshine: stop streaming",
+            builtin: true,
+            requiresPlugin: "decky-sunshine",
+            fields: [],
+            summary: () => "Sunshine: stop",
+        },
+        {
+            type: "sunshine_encoder",
+            label: "Sunshine: set video encoder",
+            builtin: true,
+            requiresPlugin: "decky-sunshine",
+            fields: [
+                {
+                    key: "encoder",
+                    kind: "select",
+                    label: "Encoder",
+                    options: [
+                        { data: "", label: "Auto" },
+                        { data: "vaapi", label: "VAAPI (recommended)" },
+                        { data: "vulkan", label: "Vulkan" },
+                        { data: "software", label: "Software (CPU)" },
+                    ],
+                },
+            ],
+            summary: (t) => "Sunshine encoder: " + (t.encoder || "auto"),
+        },
+        {
             type: "run",
             label: "Run command",
             fields: [
@@ -271,6 +299,10 @@
                         window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, "No PCSX2 profiles found")));
                 }
                 return (window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { key: f.key, label: f.label, rgOptions: profiles.map((p) => ({ data: p, label: p })), selectedOption: vals[f.key] || profiles[0], onChange: (o) => setField(f.key, o.data) }));
+            }
+            if (f.kind === "select") {
+                const opts = f.options || [];
+                return (window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { key: f.key, label: f.label, rgOptions: opts, selectedOption: vals[f.key] ?? (opts[0] ? opts[0].data : ""), onChange: (o) => setField(f.key, o.data) }));
             }
             return (window.SP_REACT.createElement(TextRow, { key: f.key, label: f.label, value: vals[f.key], onChange: (val) => setField(f.key, val) }));
         });
