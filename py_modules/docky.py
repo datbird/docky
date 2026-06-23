@@ -36,28 +36,18 @@ TASK_TYPES = ["pcsx2_profile", "copy", "move", "symlink", "write",
 # ---------------- config / state ----------------
 
 def default_config():
+    # Start empty — no example actions/modes. The user builds their own via the
+    # editor; the add-task picker defaults to the pcsx2_profile task type.
     return {
         "version": 1,
         "settings": {
             "autoDockDetection": False,
-            "dockedMode": "docked",
-            "undockedMode": "handheld",
+            "dockedMode": "",
+            "undockedMode": "",
             "pollSeconds": 3,
         },
-        "actions": {
-            "ps2_xbox": {
-                "name": "PS2: Xbox controller",
-                "tasks": [{"type": "pcsx2_profile", "profile": "extcontroller"}],
-            },
-            "ps2_handheld": {
-                "name": "PS2: built-in controls",
-                "tasks": [{"type": "pcsx2_profile", "profile": "standalone"}],
-            },
-        },
-        "modes": {
-            "docked": {"name": "Docked (TV)", "actions": ["ps2_xbox"]},
-            "handheld": {"name": "Handheld", "actions": ["ps2_handheld"]},
-        },
+        "actions": {},
+        "modes": {},
     }
 
 
