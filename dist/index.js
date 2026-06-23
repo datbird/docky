@@ -419,7 +419,13 @@
         }
         // ---- AUTO-DOCK TAB ----
         function renderAutoDock() {
+            const strict = cfg.settings.requireExternalDisplay !== false; // default true
             return (window.SP_REACT.createElement("div", null,
+                window.SP_REACT.createElement("div", { style: { fontWeight: 700, margin: "2px 0 2px" } }, "Dock detection"),
+                window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Require an external display", description: "Docked only when a monitor is actually connected. Uncheck to detect a dock that has no display attached.", checked: strict, onChange: (on) => mutate((n) => { n.settings.requireExternalDisplay = on; }) }),
+                window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Require AC power", description: "Count external power as docked. Note: a plain wall charger counts too.", checked: !!cfg.settings.requireAcPower, disabled: strict, onChange: (on) => mutate((n) => { n.settings.requireAcPower = on; }) }),
+                window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Require a USB hub (dock)", description: "Count an attached USB hub / dock as docked. Enable both to mean a real dock (AC + hub).", checked: !!cfg.settings.requireUsbHub, disabled: strict, onChange: (on) => mutate((n) => { n.settings.requireUsbHub = on; }) }),
+                window.SP_REACT.createElement("div", { style: { fontWeight: 700, margin: "12px 0 2px" } }, "Mode mapping"),
                 window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.6, marginBottom: "6px" } }, "Which mode to switch to when docking / undocking."),
                 window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When docked \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.dockedMode || "", onChange: (o) => mutate((n) => { n.settings.dockedMode = o.data; }) }),
                 window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When undocked \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.undockedMode || "", onChange: (o) => mutate((n) => { n.settings.undockedMode = o.data; }) }),

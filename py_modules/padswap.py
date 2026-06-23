@@ -151,7 +151,7 @@ def profile_primary_device(name):
     return None
 
 
-def is_docked():
+def external_display_connected():
     """An external (non-eDP) display connector reports 'connected'."""
     for p in glob.glob("/sys/class/drm/*/status"):
         conn = p.split("/")[-2]            # cardX-DP-1, cardX-eDP-1, ...
@@ -164,6 +164,42 @@ def is_docked():
         except OSError:
             pass
     return False
+
+
+def ac_present():
+    """External power applied (any power_supply '/online' == 1). Caveat: a plain
+    wall charger counts too, not only a dock."""
+    for p in glob.glob("/sys/class/power_supply/*/online"):
+        try:
+            with open(p) as f:
+                if f.read().strip() == "1":
+                    return True
+        except OSError:
+            pass
+    return False
+
+
+def usb_hub_present():
+    """A non-root USB hub is attached (bDeviceClass 09 on a downstream device).
+    On the Deck, internal peripherals hang directly off the root hubs (usbN), so
+    a *downstream* hub (name like '1-1', '2-1') means an external hub / dock is
+    plugged in."""
+    for d in glob.glob("/sys/bus/usb/devices/*"):
+        name = os.path.basename(d)
+        if "-" not in name or ":" in name:   # skip root hubs (usbN) and interfaces
+            continue
+        try:
+            with open(os.path.join(d, "bDeviceClass")) as f:
+                if f.read().strip() == "09":
+                    return True
+        except OSError:
+            pass
+    return False
+
+
+# Back-compat alias: bare is_docked() == the external-display check.
+def is_docked():
+    return external_display_connected()
 
 
 def pcsx2_running():

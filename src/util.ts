@@ -20,6 +20,10 @@ export interface Settings {
   dockedMode?: string;
   undockedMode?: string;
   pollSeconds?: number;
+  // Dock-detection signals (see docky.py is_docked).
+  requireExternalDisplay?: boolean;
+  requireAcPower?: boolean;
+  requireUsbHub?: boolean;
 }
 export interface Config {
   actions: Record<string, Action>;

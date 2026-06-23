@@ -16,7 +16,7 @@ async def _dock_watch():
             poll = max(1, int(s.get("pollSeconds", 3)))
             if s.get("autoDockDetection"):
                 st = docky.load_state()
-                docked = docky.is_docked()
+                docked = docky.is_docked(cfg)
                 last = st.get("lastDock")
                 if last is not None and docked != last:
                     mode = s["dockedMode"] if docked else s["undockedMode"]

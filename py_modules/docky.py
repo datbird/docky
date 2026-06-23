@@ -45,6 +45,12 @@ def default_config():
             "dockedMode": "",
             "undockedMode": "",
             "pollSeconds": 3,
+            # Dock-detection signals. Default: require an external display.
+            # Uncheck requireExternalDisplay to fall back to dock-presence
+            # signals (each enabled one is required / AND-ed).
+            "requireExternalDisplay": True,
+            "requireAcPower": False,
+            "requireUsbHub": False,
         },
         "actions": {},
         "modes": {},
@@ -259,14 +265,30 @@ def activate_mode(mode_id, allow_running_emu=True, cfg=None, mark_active=True):
 
 # ---------------- dock / status ----------------
 
-def is_docked():
-    return padswap.is_docked()
+def is_docked(cfg=None):
+    """Decide "docked" from the user's chosen signals.
+
+    By default (requireExternalDisplay) it means an external display is
+    connected. Unchecking that switches to dock-presence signals: AC power
+    and/or a USB hub. Each enabled sub-signal is *required* (AND), so enabling
+    both means "docked only when AC power AND a USB hub are present" — i.e. a
+    real dock, not a bare charger. If none are enabled, never docked.
+    """
+    s = (cfg or load_config()).get("settings", {})
+    if s.get("requireExternalDisplay", True):
+        return padswap.external_display_connected()
+    conds = []
+    if s.get("requireAcPower", False):
+        conds.append(padswap.ac_present())
+    if s.get("requireUsbHub", False):
+        conds.append(padswap.usb_hub_present())
+    return all(conds) if conds else False
 
 
 def suggested_mode(cfg=None):
     cfg = cfg or load_config()
     s = cfg["settings"]
-    return s["dockedMode"] if is_docked() else s["undockedMode"]
+    return s["dockedMode"] if is_docked(cfg) else s["undockedMode"]
 
 
 def get_state():
@@ -274,7 +296,7 @@ def get_state():
     st = load_state()
     return {
         "settings": cfg["settings"],
-        "docked": is_docked(),
+        "docked": is_docked(cfg),
         "suggestedMode": suggested_mode(cfg),
         "activeMode": st.get("activeMode"),
         "modes": [{"id": k, "name": v.get("name", k),
@@ -295,6 +317,6 @@ def set_auto_dock(enabled):
     save_config(cfg)
     # baseline current dock state so we only act on the NEXT change
     st = load_state()
-    st["lastDock"] = is_docked()
+    st["lastDock"] = is_docked(cfg)
     save_state(st)
     return cfg["settings"]

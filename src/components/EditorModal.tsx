@@ -421,8 +421,32 @@ export const EditorModal: VFC<{
 
   // ---- AUTO-DOCK TAB ----
   function renderAutoDock() {
+    const strict = cfg.settings.requireExternalDisplay !== false; // default true
     return (
       <div>
+        <div style={{ fontWeight: 700, margin: "2px 0 2px" }}>Dock detection</div>
+        <ToggleField
+          label="Require an external display"
+          description="Docked only when a monitor is actually connected. Uncheck to detect a dock that has no display attached."
+          checked={strict}
+          onChange={(on) => mutate((n) => { n.settings.requireExternalDisplay = on; })}
+        />
+        <ToggleField
+          label="Require AC power"
+          description="Count external power as docked. Note: a plain wall charger counts too."
+          checked={!!cfg.settings.requireAcPower}
+          disabled={strict}
+          onChange={(on) => mutate((n) => { n.settings.requireAcPower = on; })}
+        />
+        <ToggleField
+          label="Require a USB hub (dock)"
+          description="Count an attached USB hub / dock as docked. Enable both to mean a real dock (AC + hub)."
+          checked={!!cfg.settings.requireUsbHub}
+          disabled={strict}
+          onChange={(on) => mutate((n) => { n.settings.requireUsbHub = on; })}
+        />
+
+        <div style={{ fontWeight: 700, margin: "12px 0 2px" }}>Mode mapping</div>
         <div style={{ fontSize: "0.8em", opacity: 0.6, marginBottom: "6px" }}>
           Which mode to switch to when docking / undocking.
         </div>
