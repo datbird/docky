@@ -6,6 +6,7 @@ import {
   PanelSectionRow,
   ButtonItem,
   DialogButton,
+  Focusable,
   ToggleField,
   Field,
   showModal,
@@ -173,14 +174,14 @@ const Content: VFC = () => {
     <>
       <PanelSection title="Docky">
         <PanelSectionRow>
-          <div style={{ display: "flex", gap: "8px" }}>
+          <Focusable flow-children="horizontal" style={{ display: "flex", gap: "8px" }}>
             <IconButton label="Reload" disabled={busy} onClick={refresh}>
               <ReloadIcon />
             </IconButton>
             <IconButton label="Settings" disabled={busy} onClick={openEditor}>
               <SettingsIcon />
             </IconButton>
-          </div>
+          </Focusable>
         </PanelSectionRow>
         <PanelSectionRow>
           <Field label="Environment" bottomSeparator="thick">

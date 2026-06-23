@@ -5,6 +5,7 @@ import {
   Field,
   ToggleField,
   DropdownItem,
+  Focusable,
 } from "decky-frontend-lib";
 import { Config, Task, call, clone, errText, slugify, toast, uniqueId } from "../util";
 import { BUILTIN_DEFS, GENERIC_DEFS, taskDef, summarizeTask } from "../taskdefs";
@@ -458,7 +459,7 @@ export const EditorModal: VFC<{
         <span style={{ fontSize: "0.8em", opacity: 0.7 }}>{dirty ? "Unsaved changes" : "Saved"}</span>
       </div>
 
-      <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
+      <Focusable flow-children="horizontal" style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
         <DialogButton disabled={busy || !dirty} onClick={saveCfg}>
           Save
         </DialogButton>
@@ -468,15 +469,15 @@ export const EditorModal: VFC<{
         <DialogButton disabled={busy} onClick={() => closeModal?.()}>
           Close
         </DialogButton>
-      </div>
+      </Focusable>
       {msg ? <div style={{ fontSize: "0.8em", opacity: 0.8, marginBottom: "8px" }}>{msg}</div> : null}
 
-      {/* tab bar */}
-      <div style={{ display: "flex", gap: "4px", marginBottom: "10px" }}>
+      {/* tab bar — horizontal flow so the d-pad/stick moves left↔right between tabs */}
+      <Focusable flow-children="horizontal" style={{ display: "flex", gap: "4px", marginBottom: "10px" }}>
         <TabButton active={tab === "actions"} label="Actions" onClick={() => setTab("actions")} />
         <TabButton active={tab === "modes"} label="Modes" onClick={() => setTab("modes")} />
         <TabButton active={tab === "autodock"} label="Auto-dock mapping" onClick={() => setTab("autodock")} />
-      </div>
+      </Focusable>
 
       {/* tab content */}
       <div style={{ maxHeight: "62vh", overflowY: "scroll", paddingRight: "6px" }}>
