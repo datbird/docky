@@ -674,9 +674,38 @@
                 window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => closeModal && closeModal() }, "Close"))));
     };
 
+    const Row = ({ label, value }) => (window.SP_REACT.createElement("div", { style: {
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            padding: "8px 0",
+            borderBottom: "1px solid rgba(255,255,255,0.1)",
+        } },
+        window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, label),
+        window.SP_REACT.createElement("span", { style: { fontWeight: 600, textAlign: "right" } }, value)));
+    // Read-only popup with the Docky status fields that used to sit in the panel.
+    const StatusModal = ({ closeModal, state, activeName }) => {
+        const sunshine = state.sunshine
+            ? state.sunshine.running
+                ? "Streaming"
+                : state.sunshine.installed
+                    ? "Installed"
+                    : "Not installed"
+            : "—";
+        return (window.SP_REACT.createElement(deckyFrontendLib.ModalRoot, { onCancel: closeModal, onEscKeypress: closeModal },
+            window.SP_REACT.createElement("div", { style: { fontSize: "1.3em", fontWeight: 700, marginBottom: "8px" } }, "Docky status"),
+            window.SP_REACT.createElement(Row, { label: "Environment", value: state.docked ? "Docked (external display)" : "Handheld" }),
+            window.SP_REACT.createElement(Row, { label: "Active mode", value: activeName }),
+            window.SP_REACT.createElement(Row, { label: "Sunshine", value: sunshine })));
+    };
+
     function DockIcon() {
         return (window.SP_REACT.createElement("svg", { width: "1em", height: "1em", viewBox: "0 0 24 24", fill: "currentColor" },
             window.SP_REACT.createElement("path", { d: "M4 5h16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-5v2h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2h2v-2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v7h16V7H4z" })));
+    }
+    function InfoIcon() {
+        return (window.SP_REACT.createElement("svg", { width: "1.1em", height: "1.1em", viewBox: "0 0 24 24", fill: "currentColor" },
+            window.SP_REACT.createElement("path", { d: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" })));
     }
     function ReloadIcon() {
         return (window.SP_REACT.createElement("svg", { width: "1.2em", height: "1.2em", viewBox: "0 0 24 24", fill: "currentColor" },
@@ -835,22 +864,12 @@
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Docky" },
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px" } },
+                        window.SP_REACT.createElement(IconButton, { flex: 0.5, disabled: busy, onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(StatusModal, { state: state, activeName: activeName })) },
+                            window.SP_REACT.createElement(InfoIcon, null)),
                         window.SP_REACT.createElement(IconButton, { label: "Reload", disabled: busy, onClick: refresh },
                             window.SP_REACT.createElement(ReloadIcon, null)),
                         window.SP_REACT.createElement(IconButton, { label: "Settings", disabled: busy, onClick: openEditor },
                             window.SP_REACT.createElement(SettingsIcon, null)))),
-                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.Field, { label: "Environment", bottomSeparator: "thick" }, state.docked ? "Docked (external display)" : "Handheld")),
-                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.Field, { label: "Active mode", bottomSeparator: "thick" }, activeName)),
-                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.Field, { label: "Sunshine" }, state.sunshine
-                        ? state.sunshine.running
-                            ? "Streaming"
-                            : state.sunshine.installed
-                                ? "Installed"
-                                : "Not installed"
-                        : "—")),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px" } },
                         window.SP_REACT.createElement(IconButton, { label: "Pair", flex: 2, disabled: busy, onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(PairModal, { credsStored: !!(state.sunshine && state.sunshine.credsStored), onState: (st) => st && setState(st) })) },

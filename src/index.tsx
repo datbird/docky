@@ -8,17 +8,25 @@ import {
   DialogButton,
   Focusable,
   ToggleField,
-  Field,
   showModal,
 } from "decky-frontend-lib";
 import { DockyState, RunResult, call, errText, setServer, summarize, toast } from "./util";
 import { EditorModal } from "./components/EditorModal";
 import { PairModal } from "./components/PairModal";
+import { StatusModal } from "./components/StatusModal";
 
 function DockIcon() {
   return (
     <svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor">
       <path d="M4 5h16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-5v2h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2h2v-2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v7h16V7H4z" />
+    </svg>
+  );
+}
+
+function InfoIcon() {
+  return (
+    <svg width="1.1em" height="1.1em" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
     </svg>
   );
 }
@@ -236,6 +244,17 @@ const Content: VFC = () => {
       <PanelSection title="Docky">
         <PanelSectionRow>
           <Focusable flow-children="horizontal" style={{ display: "flex", gap: "8px" }}>
+            <IconButton
+              flex={0.5}
+              disabled={busy}
+              onClick={() =>
+                showModal(
+                  <StatusModal state={state} activeName={activeName} />
+                )
+              }
+            >
+              <InfoIcon />
+            </IconButton>
             <IconButton label="Reload" disabled={busy} onClick={refresh}>
               <ReloadIcon />
             </IconButton>
@@ -243,27 +262,6 @@ const Content: VFC = () => {
               <SettingsIcon />
             </IconButton>
           </Focusable>
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <Field label="Environment" bottomSeparator="thick">
-            {state.docked ? "Docked (external display)" : "Handheld"}
-          </Field>
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <Field label="Active mode" bottomSeparator="thick">
-            {activeName}
-          </Field>
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <Field label="Sunshine">
-            {state.sunshine
-              ? state.sunshine.running
-                ? "Streaming"
-                : state.sunshine.installed
-                  ? "Installed"
-                  : "Not installed"
-              : "—"}
-          </Field>
         </PanelSectionRow>
         <PanelSectionRow>
           <Focusable
