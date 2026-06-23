@@ -451,6 +451,26 @@
         return (window.SP_REACT.createElement("svg", { width: "1em", height: "1em", viewBox: "0 0 24 24", fill: "currentColor" },
             window.SP_REACT.createElement("path", { d: "M4 5h16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-5v2h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2h2v-2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v7h16V7H4z" })));
     }
+    function ReloadIcon() {
+        return (window.SP_REACT.createElement("svg", { width: "1.2em", height: "1.2em", viewBox: "0 0 24 24", fill: "currentColor" },
+            window.SP_REACT.createElement("path", { d: "M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" })));
+    }
+    function SettingsIcon() {
+        return (window.SP_REACT.createElement("svg", { width: "1.2em", height: "1.2em", viewBox: "0 0 24 24", fill: "currentColor" },
+            window.SP_REACT.createElement("path", { d: "M19.14 12.94a7.49 7.49 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.24-1.12.55-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.49 7.49 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.34.68.22l2.39-.96c.5.39 1.04.7 1.62.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.58-.24 1.12-.56 1.62-.94l2.39.96c.26.12.54.02.68-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z" })));
+    }
+    // Compact icon button for the top action row.
+    const IconButton = ({ label, disabled, onClick, children, }) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: disabled, onClick: onClick, style: {
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "6px",
+            padding: "6px",
+        } },
+        children,
+        window.SP_REACT.createElement("span", { style: { fontSize: "0.85em" } }, label)));
     const Content = () => {
         const [state, setState] = react.useState(null);
         const [busy, setBusy] = react.useState(false);
@@ -542,13 +562,17 @@
         return (window.SP_REACT.createElement(window.SP_REACT.Fragment, null,
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Docky" },
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement("div", { style: { display: "flex", gap: "8px" } },
+                        window.SP_REACT.createElement(IconButton, { label: "Reload", disabled: busy, onClick: refresh },
+                            window.SP_REACT.createElement(ReloadIcon, null)),
+                        window.SP_REACT.createElement(IconButton, { label: "Settings", disabled: busy, onClick: openEditor },
+                            window.SP_REACT.createElement(SettingsIcon, null)))),
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Field, { label: "Environment", bottomSeparator: "thick" }, state.docked ? "Docked (external display)" : "Handheld")),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Field, { label: "Active mode", bottomSeparator: "thick" }, activeName)),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Auto Dock Detection", description: "Auto-switch modes when you dock/undock", checked: !!sett.autoDockDetection, disabled: busy, onChange: toggleAuto })),
-                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: openEditor }, "Edit configuration\u2026"))),
+                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Auto Dock Detection", description: "Auto-switch modes when you dock/undock", checked: !!sett.autoDockDetection, disabled: busy, onChange: toggleAuto }))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Modes" }, modes.length ? (modes.map((mode) => {
                 const isActive = mode.id === state.activeMode;
                 const isSugg = mode.id === state.suggestedMode && !isActive;
@@ -560,11 +584,9 @@
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Run Action" }, actions.length ? (actions.map((a) => (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "a_" + a.id },
                 window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, description: a.taskCount + " task" + (a.taskCount === 1 ? "" : "s"), onClick: () => doCall("run_action", { action_id: a.id }, "Running " + a.name) }, "Run: " + a.name))))) : (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                 window.SP_REACT.createElement("div", { style: { opacity: 0.7 } }, "No actions defined")))),
-            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
-                msg ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement("div", { style: { fontSize: "0.75em", opacity: 0.8, padding: "0 16px" } }, msg))) : null,
+            msg ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: refresh }, "Refresh")))));
+                    window.SP_REACT.createElement("div", { style: { fontSize: "0.75em", opacity: 0.8, padding: "0 16px" } }, msg)))) : null));
     };
     var index = deckyFrontendLib.definePlugin((serverApi) => {
         setServer(serverApi);

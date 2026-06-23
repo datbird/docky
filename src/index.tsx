@@ -5,6 +5,7 @@ import {
   PanelSection,
   PanelSectionRow,
   ButtonItem,
+  DialogButton,
   ToggleField,
   Field,
   showModal,
@@ -19,6 +20,47 @@ function DockIcon() {
     </svg>
   );
 }
+
+function ReloadIcon() {
+  return (
+    <svg width="1.2em" height="1.2em" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg width="1.2em" height="1.2em" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M19.14 12.94a7.49 7.49 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.24-1.12.55-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.49 7.49 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.34.68.22l2.39-.96c.5.39 1.04.7 1.62.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.58-.24 1.12-.56 1.62-.94l2.39.96c.26.12.54.02.68-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z" />
+    </svg>
+  );
+}
+
+// Compact icon button for the top action row.
+const IconButton: VFC<{ label: string; disabled?: boolean; onClick: () => void; children: any }> = ({
+  label,
+  disabled,
+  onClick,
+  children,
+}) => (
+  <DialogButton
+    disabled={disabled}
+    onClick={onClick}
+    style={{
+      flex: 1,
+      minWidth: 0,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: "6px",
+      padding: "6px",
+    }}
+  >
+    {children}
+    <span style={{ fontSize: "0.85em" }}>{label}</span>
+  </DialogButton>
+);
 
 const Content: VFC = () => {
   const [state, setState] = useState<DockyState | null>(null);
@@ -131,6 +173,16 @@ const Content: VFC = () => {
     <>
       <PanelSection title="Docky">
         <PanelSectionRow>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <IconButton label="Reload" disabled={busy} onClick={refresh}>
+              <ReloadIcon />
+            </IconButton>
+            <IconButton label="Settings" disabled={busy} onClick={openEditor}>
+              <SettingsIcon />
+            </IconButton>
+          </div>
+        </PanelSectionRow>
+        <PanelSectionRow>
           <Field label="Environment" bottomSeparator="thick">
             {state.docked ? "Docked (external display)" : "Handheld"}
           </Field>
@@ -148,11 +200,6 @@ const Content: VFC = () => {
             disabled={busy}
             onChange={toggleAuto}
           />
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <ButtonItem layout="below" disabled={busy} onClick={openEditor}>
-            Edit configuration…
-          </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
 
@@ -203,18 +250,13 @@ const Content: VFC = () => {
         )}
       </PanelSection>
 
-      <PanelSection>
-        {msg ? (
+      {msg ? (
+        <PanelSection>
           <PanelSectionRow>
             <div style={{ fontSize: "0.75em", opacity: 0.8, padding: "0 16px" }}>{msg}</div>
           </PanelSectionRow>
-        ) : null}
-        <PanelSectionRow>
-          <ButtonItem layout="below" disabled={busy} onClick={refresh}>
-            Refresh
-          </ButtonItem>
-        </PanelSectionRow>
-      </PanelSection>
+        </PanelSection>
+      ) : null}
     </>
   );
 };
