@@ -86,28 +86,39 @@
             summary: (t) => "PCSX2 profile: " + (t.profile || "?"),
         },
         {
+            type: "sunshine_start",
+            label: "Sunshine: start streaming",
+            builtin: true,
+            fields: [],
+            summary: () => "Sunshine: start",
+        },
+        {
+            type: "sunshine_restart",
+            label: "Sunshine: restart streaming",
+            builtin: true,
+            fields: [],
+            summary: () => "Sunshine: restart",
+        },
+        {
+            type: "sunshine_stop",
+            label: "Sunshine: stop streaming",
+            builtin: true,
+            fields: [],
+            summary: () => "Sunshine: stop",
+        },
+        {
             type: "sunshine_composition",
             label: "Sunshine: force composition (fix docked stretch)",
             builtin: true,
-            requiresPlugin: "decky-sunshine",
             fields: [
                 { key: "enabled", kind: "bool", label: "Force composition on" },
             ],
             summary: (t) => "Sunshine composition: " + (t.enabled ? "on" : "off"),
         },
         {
-            type: "sunshine_stop",
-            label: "Sunshine: stop streaming",
-            builtin: true,
-            requiresPlugin: "decky-sunshine",
-            fields: [],
-            summary: () => "Sunshine: stop",
-        },
-        {
             type: "sunshine_encoder",
             label: "Sunshine: set video encoder",
             builtin: true,
-            requiresPlugin: "decky-sunshine",
             fields: [
                 {
                     key: "encoder",
@@ -676,6 +687,14 @@
                     window.SP_REACT.createElement(deckyFrontendLib.Field, { label: "Environment", bottomSeparator: "thick" }, state.docked ? "Docked (external display)" : "Handheld")),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Field, { label: "Active mode", bottomSeparator: "thick" }, activeName)),
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.Field, { label: "Sunshine", bottomSeparator: "thick" }, state.sunshine
+                        ? state.sunshine.running
+                            ? "Streaming"
+                            : state.sunshine.installed
+                                ? "Installed"
+                                : "Not installed"
+                        : "—")),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Auto Dock Detection", description: "Auto-switch modes when you dock/undock", checked: !!sett.autoDockDetection, disabled: busy, onChange: toggleAuto }))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Modes" }, modes.length ? (modes.map((mode) => {

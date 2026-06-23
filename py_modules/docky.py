@@ -21,6 +21,7 @@ import time
 import glob
 
 import padswap  # proven PCSX2 input-profile logic
+import sunshine  # Docky's own Sunshine flatpak control
 
 CONFIG_DIR = os.path.expanduser("~/.config/docky")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
@@ -131,31 +132,6 @@ def _chown_to_parent(path):
         pass
 
 
-# The *streaming* Sunshine is launched as root by decky-sunshine, so it reads its
-# config from root's home.
-SUNSHINE_APP_ID = "dev.lizardbyte.app.Sunshine"
-SUNSHINE_CONF = "/root/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf"
-
-
-def _set_sunshine_encoder(value):
-    """Set 'encoder = <value>' in the (root) Sunshine config; '' removes it
-    (auto). Takes effect on the next Sunshine start. Returns (ok, message)."""
-    if value not in ("", "vaapi", "vulkan", "software"):
-        return False, "invalid encoder: %r" % value
-    try:
-        lines = []
-        if os.path.isfile(SUNSHINE_CONF):
-            with open(SUNSHINE_CONF, "r", encoding="utf-8") as f:
-                lines = f.read().splitlines()
-        out = [ln for ln in lines if ln.split("=", 1)[0].strip().lower() != "encoder"]
-        if value:
-            out.append("encoder = %s" % value)
-        os.makedirs(os.path.dirname(SUNSHINE_CONF), exist_ok=True)
-        with open(SUNSHINE_CONF, "w", encoding="utf-8") as f:
-            f.write("\n".join(out) + "\n")
-        return True, "encoder set to %s (applies on next Sunshine start)" % (value or "auto")
-    except OSError as e:
-        return False, "could not write sunshine.conf: %s" % e
 
 
 def _run_proc(argv, shell=False, cwd=None, timeout=DEFAULT_TIMEOUT, env=None):
@@ -268,32 +244,24 @@ def run_task(task, allow_running_emu=True):
                                     timeout=task.get("timeout", DEFAULT_TIMEOUT))
             r.update(ok=ok, message=msg)
 
-        elif t == "sunshine_composition":
-            # Force (or release) gamescope composition so a docked Sunshine stream
-            # isn't squeezed/stretched. The backend runs as root, so set the atom
-            # as the session user 'deck' (xprop needs the deck-owned display :0).
-            on = bool(task.get("enabled"))
-            val = "1" if on else "0"
-            subprocess.run(
-                ["su", "deck", "-c",
-                 "DISPLAY=:0 xprop -root -f GAMESCOPE_COMPOSITE_FORCE 32c "
-                 "-set GAMESCOPE_COMPOSITE_FORCE " + val],
-                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-            )
-            r.update(ok=True, message="composition forced %s" % ("on" if on else "off"))
+        elif t == "sunshine_start":
+            ok, msg = sunshine.start()
+            r.update(ok=ok, message=msg)
 
         elif t == "sunshine_stop":
-            # Backend runs as root, so it can kill the root-launched system flatpak.
-            proc = subprocess.run(["flatpak", "kill", SUNSHINE_APP_ID],
-                                  capture_output=True, text=True)
-            if proc.returncode == 0:
-                r.update(ok=True, message="Sunshine stopped")
-            else:
-                # Most often "not running" — fine for dock automation, not a failure.
-                r.update(ok=True, skipped=True, message="Sunshine not running")
+            ok, msg = sunshine.stop()
+            r.update(ok=ok, message=msg)
+
+        elif t == "sunshine_restart":
+            ok, msg = sunshine.restart()
+            r.update(ok=ok, message=msg)
+
+        elif t == "sunshine_composition":
+            ok, msg = sunshine.set_composition(bool(task.get("enabled")))
+            r.update(ok=ok, message=msg)
 
         elif t == "sunshine_encoder":
-            ok, msg = _set_sunshine_encoder(task.get("encoder", ""))
+            ok, msg = sunshine.set_encoder(task.get("encoder", ""))
             r.update(ok=ok, message=msg)
 
         else:
@@ -413,6 +381,7 @@ def get_state():
         "pcsx2_profiles": padswap.list_profiles(),
         "pcsx2_running": padswap.pcsx2_running(),
         "installed_plugins": installed_plugins(),
+        "sunshine": sunshine.status(),
         "config_path": CONFIG_PATH,
     }
 

@@ -195,6 +195,17 @@ const Content: VFC = () => {
           </Field>
         </PanelSectionRow>
         <PanelSectionRow>
+          <Field label="Sunshine" bottomSeparator="thick">
+            {state.sunshine
+              ? state.sunshine.running
+                ? "Streaming"
+                : state.sunshine.installed
+                  ? "Installed"
+                  : "Not installed"
+              : "—"}
+          </Field>
+        </PanelSectionRow>
+        <PanelSectionRow>
           <ToggleField
             label="Auto Dock Detection"
             description="Auto-switch modes when you dock/undock"
