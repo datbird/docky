@@ -13,6 +13,7 @@ import {
 } from "decky-frontend-lib";
 import { DockyState, RunResult, call, errText, setServer, summarize, toast } from "./util";
 import { EditorModal } from "./components/EditorModal";
+import { PairModal } from "./components/PairModal";
 
 function DockIcon() {
   return (
@@ -204,6 +205,22 @@ const Content: VFC = () => {
                   : "Not installed"
               : "—"}
           </Field>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            disabled={busy}
+            onClick={() =>
+              showModal(
+                <PairModal
+                  credsStored={!!(state.sunshine && state.sunshine.credsStored)}
+                  onState={(st) => st && setState(st)}
+                />
+              )
+            }
+          >
+            Pair a device…
+          </ButtonItem>
         </PanelSectionRow>
         <PanelSectionRow>
           <ToggleField

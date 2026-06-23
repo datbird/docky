@@ -563,6 +563,68 @@
                 tab === "autodock" ? renderAutoDock() : null)));
     };
 
+    // Pair a Moonlight client with Docky's Sunshine. If no Sunshine login is stored
+    // yet, first set one (Docky takes ownership of the credentials); then submit the
+    // PIN Moonlight shows.
+    const PairModal = ({ closeModal, credsStored, onState }) => {
+        const [mode, setMode] = react.useState(credsStored ? "pair" : "login");
+        const [user, setUser] = react.useState("docky");
+        const [pass, setPass] = react.useState("");
+        const [pin, setPin] = react.useState("");
+        const [name, setName] = react.useState("");
+        const [busy, setBusy] = react.useState(false);
+        const [msg, setMsg] = react.useState("");
+        function saveLogin() {
+            setBusy(true);
+            setMsg("Setting login…");
+            call("set_sunshine_login", { username: user, password: pass })
+                .then((r) => {
+                setBusy(false);
+                setMsg((r && r.message) || (r && r.ok ? "Login set" : "Failed"));
+                if (r && r.ok) {
+                    if (r.state)
+                        onState(r.state);
+                    setMode("pair");
+                }
+            })
+                .catch((e) => {
+                setBusy(false);
+                setMsg("Error: " + e);
+            });
+        }
+        function doPair() {
+            setBusy(true);
+            setMsg("Pairing…");
+            call("sunshine_pair", { pin, name })
+                .then((r) => {
+                setBusy(false);
+                setMsg((r && r.message) || (r && r.ok ? "Paired" : "Failed"));
+                if (r && r.ok)
+                    setPin("");
+            })
+                .catch((e) => {
+                setBusy(false);
+                setMsg("Error: " + e);
+            });
+        }
+        return (window.SP_REACT.createElement(deckyFrontendLib.ModalRoot, { onCancel: closeModal, onEscKeypress: closeModal },
+            window.SP_REACT.createElement("div", { style: { fontSize: "1.3em", fontWeight: 700, marginBottom: "8px" } }, "Pair a device"),
+            mode === "login" ? (window.SP_REACT.createElement("div", null,
+                window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.7, marginBottom: "4px" } }, "Set a Sunshine login (used to authorize pairing). This resets Sunshine's username/password \u2014 existing paired devices are kept."),
+                window.SP_REACT.createElement(TextRow, { label: "Username", value: user, onChange: setUser }),
+                window.SP_REACT.createElement(TextRow, { label: "Password", value: pass, onChange: setPass }),
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !user.trim() || !pass, onClick: saveLogin }, "Save login"))) : (window.SP_REACT.createElement("div", null,
+                window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.7, marginBottom: "4px" } }, "In Moonlight, select this Deck \u2014 it shows a PIN. Enter that PIN here."),
+                window.SP_REACT.createElement(TextRow, { label: "PIN", value: pin, onChange: setPin }),
+                window.SP_REACT.createElement(TextRow, { label: "Device name (optional)", value: name, onChange: setName }),
+                window.SP_REACT.createElement("div", { style: { display: "flex", gap: "8px" } },
+                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !pin.trim(), onClick: doPair }, "Pair"),
+                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => setMode("login") }, "Change login")))),
+            msg ? window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.85, marginTop: "8px" } }, msg) : null,
+            window.SP_REACT.createElement("div", { style: { marginTop: "10px" } },
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => closeModal && closeModal() }, "Close"))));
+    };
+
     function DockIcon() {
         return (window.SP_REACT.createElement("svg", { width: "1em", height: "1em", viewBox: "0 0 24 24", fill: "currentColor" },
             window.SP_REACT.createElement("path", { d: "M4 5h16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-5v2h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2h2v-2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v7h16V7H4z" })));
@@ -695,6 +757,8 @@
                                 ? "Installed"
                                 : "Not installed"
                         : "—")),
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(PairModal, { credsStored: !!(state.sunshine && state.sunshine.credsStored), onState: (st) => st && setState(st) })) }, "Pair a device\u2026")),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Auto Dock Detection", description: "Auto-switch modes when you dock/undock", checked: !!sett.autoDockDetection, disabled: busy, onChange: toggleAuto }))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Modes" }, modes.length ? (modes.map((mode) => {

@@ -381,9 +381,27 @@ def get_state():
         "pcsx2_profiles": padswap.list_profiles(),
         "pcsx2_running": padswap.pcsx2_running(),
         "installed_plugins": installed_plugins(),
-        "sunshine": sunshine.status(),
+        "sunshine": dict(sunshine.status(), credsStored=bool(st.get("sunshineAuth"))),
         "config_path": CONFIG_PATH,
     }
+
+
+def set_sunshine_login(username, password):
+    """Set/reset Sunshine's admin login and remember it for pairing."""
+    ok, msg, auth = sunshine.set_login(username, password)
+    if ok and auth:
+        st = load_state()
+        st["sunshineUser"] = username
+        st["sunshineAuth"] = auth
+        save_state(st)
+    return {"ok": ok, "message": msg}
+
+
+def sunshine_pair(pin, name=""):
+    """Complete a Moonlight pairing using the stored Sunshine login."""
+    st = load_state()
+    ok, msg = sunshine.pair(pin, name, st.get("sunshineAuth"))
+    return {"ok": ok, "message": msg}
 
 
 def set_auto_dock(enabled):

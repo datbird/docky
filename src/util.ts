@@ -51,7 +51,7 @@ export interface DockyState {
   settings?: Settings;
   pcsx2_profiles?: string[];
   installed_plugins?: string[];
-  sunshine?: { installed: boolean; running: boolean };
+  sunshine?: { installed: boolean; running: boolean; credsStored?: boolean };
   error?: string;
 }
 

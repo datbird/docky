@@ -83,6 +83,22 @@ class Plugin:
             decky.logger.exception("set_auto_dock failed")
             return {"error": str(e)}
 
+    async def set_sunshine_login(self, username, password):
+        try:
+            res = docky.set_sunshine_login(username, password)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("set_sunshine_login failed")
+            return {"ok": False, "message": str(e)}
+
+    async def sunshine_pair(self, pin, name):
+        try:
+            return docky.sunshine_pair(pin, name)
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("sunshine_pair failed")
+            return {"ok": False, "message": str(e)}
+
     async def get_config(self):
         try:
             return {"config": docky.load_config(), "path": docky.CONFIG_PATH}

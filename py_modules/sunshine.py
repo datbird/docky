@@ -16,8 +16,13 @@ and the user's audio socket.
 """
 
 import os
+import ssl
+import json
 import time
+import base64
 import subprocess
+import urllib.request
+import urllib.error
 
 APP_ID = "dev.lizardbyte.app.Sunshine"
 
@@ -227,3 +232,105 @@ def set_encoder(value):
 
 def status():
     return {"installed": is_installed(), "running": is_running()}
+
+
+# ---- Web API: credentials + client pairing ----
+#
+# Sunshine exposes an HTTPS API on :47990 (self-signed cert). Pairing a Moonlight
+# client means POSTing the PIN it shows to /api/pin with HTTP Basic auth. Setting
+# the admin login is done via /api/password; when no login exists yet (first run)
+# that endpoint accepts the new credentials without auth — which is also the
+# supported way to reset a forgotten login, so Docky uses it to take ownership of
+# the credentials it then stores. Facts only (endpoints/JSON shapes from Sunshine
+# itself); no third-party code.
+
+WEB_BASE = "https://localhost:47990"
+STATE_FILE = "/root/.var/app/%s/config/sunshine/sunshine_state.json" % APP_ID
+
+
+def basic_header(username, password):
+    return base64.b64encode(("%s:%s" % (username, password)).encode()).decode()
+
+
+def _api(path, method="GET", auth=None, body=None):
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(WEB_BASE + path, data=data, method=method)
+    if body is not None:
+        req.add_header("Content-Type", "application/json")
+    if auth:
+        req.add_header("Authorization", "Basic " + auth)
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except Exception as e:  # noqa: BLE001
+        return None, str(e)
+
+
+def _ok_status(resp):
+    return '"status":true' in (resp or "").replace(" ", "")
+
+
+def _clear_login():
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    # Keep everything (incl. paired devices under "root"); only drop the login.
+    for k in ("username", "salt", "password"):
+        data[k] = ""
+    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+
+def set_login(username, password):
+    """Set Sunshine's admin login to the given credentials, without needing the
+    old password (clears the login -> first-run -> sets it). Existing paired
+    devices are preserved. Returns (ok, message, auth_header)."""
+    if not username or not password:
+        return False, "username and password are required", None
+    _clear_login()
+    ok, msg = restart()
+    if not ok:
+        return False, "couldn't restart Sunshine: " + msg, None
+    # Wait for the web API to answer (any response means it's up).
+    for _ in range(40):
+        code, _resp = _api("/api/apps")
+        if code is not None:
+            break
+        time.sleep(0.25)
+    code, resp = _api(
+        "/api/password",
+        method="POST",
+        body={"newUsername": username, "newPassword": password, "confirmNewPassword": password},
+    )
+    if code == 200 and _ok_status(resp):
+        return True, "Sunshine login set", basic_header(username, password)
+    return False, "couldn't set login (HTTP %s)" % code, None
+
+
+def pair(pin, name, auth):
+    """Complete a Moonlight pairing by submitting its PIN. Returns (ok, message)."""
+    if not auth:
+        return False, "no Sunshine login set yet"
+    if not pin:
+        return False, "a PIN is required"
+    code, resp = _api(
+        "/api/pin",
+        method="POST",
+        auth=auth,
+        body={"pin": str(pin), "name": name or "Moonlight"},
+    )
+    if code == 200 and _ok_status(resp):
+        return True, "paired"
+    if code == 200:
+        return False, "pairing failed — check the PIN and that Moonlight is waiting"
+    if code in (401, 403):
+        return False, "Sunshine rejected the login — set it again"
+    return False, "pairing error (HTTP %s)" % code
