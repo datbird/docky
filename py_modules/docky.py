@@ -52,6 +52,9 @@ def default_config():
             "requireExternalDisplay": True,
             "requireAcPower": False,
             "requireUsbHub": False,
+            # Launch Sunshine when the plugin loads (i.e. at boot), so streaming
+            # is available after a reboot without opening the panel.
+            "autostartSunshine": True,
         },
         "actions": {},
         "modes": {},
@@ -386,6 +389,19 @@ def get_state():
     }
 
 
+def autostart_sunshine():
+    """Start Sunshine on plugin load if the autostartSunshine setting is on.
+
+    Returns (attempted, ok, message). Safe to call unconditionally — it no-ops
+    when the setting is off or Sunshine is already running.
+    """
+    cfg = load_config()
+    if not cfg["settings"].get("autostartSunshine"):
+        return False, True, "autostart disabled"
+    ok, msg = sunshine.start()
+    return True, ok, msg
+
+
 def set_sunshine_login(username, password):
     """Set/reset Sunshine's admin login and remember it for pairing."""
     ok, msg, auth = sunshine.set_login(username, password)
@@ -421,6 +437,13 @@ def sunshine_unpair_all():
     st = load_state()
     ok, msg = sunshine.unpair_all(st.get("sunshineAuth"))
     return {"ok": ok, "message": msg}
+
+
+def set_autostart_sunshine(enabled):
+    cfg = load_config()
+    cfg["settings"]["autostartSunshine"] = bool(enabled)
+    save_config(cfg)
+    return cfg["settings"]
 
 
 def set_auto_dock(enabled):

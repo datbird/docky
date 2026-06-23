@@ -45,8 +45,22 @@ async def _dock_watch():
         await asyncio.sleep(poll)
 
 
+async def _autostart_sunshine():
+    # Start Sunshine on load (at boot) if enabled. sunshine.start() blocks while
+    # waiting for the port to bind, so run it in a thread to keep _main snappy.
+    # Module-level (NOT a Plugin method) — Decky's class wrapping breaks self.*.
+    try:
+        attempted, ok, msg = await asyncio.to_thread(docky.autostart_sunshine)
+        if attempted:
+            (decky.logger.info if ok else decky.logger.warning)(
+                "autostart Sunshine: %s", msg)
+    except Exception:  # noqa: BLE001
+        decky.logger.exception("autostart Sunshine failed")
+
+
 class Plugin:
     _watch_task = None
+    _autostart_task = None
 
     # ---- frontend-callable ----
 
@@ -92,6 +106,14 @@ class Plugin:
             decky.logger.exception("set_sunshine_login failed")
             return {"ok": False, "message": str(e)}
 
+    async def set_autostart_sunshine(self, enabled):
+        try:
+            docky.set_autostart_sunshine(enabled)
+            return {"state": docky.get_state()}
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("set_autostart_sunshine failed")
+            return {"error": str(e)}
+
     async def sunshine_pair(self, pin, name):
         try:
             return docky.sunshine_pair(pin, name)
@@ -136,6 +158,7 @@ class Plugin:
     async def _main(self):
         docky.load_config()  # ensure default exists
         self._watch_task = asyncio.create_task(_dock_watch())
+        self._autostart_task = asyncio.create_task(_autostart_sunshine())
         decky.logger.info("Docky loaded; config=%s", docky.CONFIG_PATH)
 
     async def _unload(self):

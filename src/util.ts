@@ -24,6 +24,7 @@ export interface Settings {
   requireExternalDisplay?: boolean;
   requireAcPower?: boolean;
   requireUsbHub?: boolean;
+  autostartSunshine?: boolean;
 }
 export interface Config {
   actions: Record<string, Action>;

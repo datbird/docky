@@ -749,6 +749,22 @@
                 setMsg("Error: " + errText(err));
             });
         }
+        function toggleAutostartSunshine(v) {
+            setBusy(true);
+            call("set_autostart_sunshine", { enabled: v })
+                .then((r) => {
+                setBusy(false);
+                if (r && r.state)
+                    setState(r.state);
+                else
+                    refresh();
+                setMsg("Start Sunshine at boot " + (v ? "ON" : "OFF"));
+            })
+                .catch((err) => {
+                setBusy(false);
+                setMsg("Error: " + errText(err));
+            });
+        }
         function openEditor() {
             setBusy(true);
             call("get_config", {})
@@ -808,6 +824,8 @@
                         : "—")),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(PairModal, { credsStored: !!(state.sunshine && state.sunshine.credsStored), onState: (st) => st && setState(st) })) }, "Pair a device\u2026")),
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Start Sunshine at boot", description: "Launch Sunshine when Docky loads after a reboot", checked: sett.autostartSunshine !== false, disabled: busy, onChange: toggleAutostartSunshine })),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Auto Dock Detection", description: "Auto-switch modes when you dock/undock", checked: !!sett.autoDockDetection, disabled: busy, onChange: toggleAuto }))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Modes" }, modes.length ? (modes.map((mode) => {
