@@ -8,7 +8,9 @@ import {
 } from "decky-frontend-lib";
 import { Config, Task, call, clone, errText, slugify, toast, uniqueId } from "../util";
 import { TASK_DEFS, taskDef, summarizeTask } from "../taskdefs";
-import { Section, Card, TextRow } from "./inputs";
+import { Card, TextRow } from "./inputs";
+
+type TabId = "actions" | "modes" | "autodock";
 
 // Add-task form for one action: pick a type, fill its fields, append.
 const AddTask: VFC<{ profiles: string[]; busy: boolean; onAdd: (t: Task) => void }> = ({
@@ -74,9 +76,10 @@ const AddTask: VFC<{ profiles: string[]; busy: boolean; onAdd: (t: Task) => void
   });
 
   return (
-    <div style={{ marginTop: "6px" }}>
+    <div style={{ marginTop: "8px", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "8px" }}>
+      <div style={{ fontWeight: 600, marginBottom: "2px" }}>Add a task</div>
       <DropdownItem
-        label="Add task"
+        label="Task type"
         rgOptions={TASK_DEFS.map((d) => ({ data: d.type, label: d.label }))}
         selectedOption={type}
         onChange={(o) => {
@@ -92,31 +95,45 @@ const AddTask: VFC<{ profiles: string[]; busy: boolean; onAdd: (t: Task) => void
   );
 };
 
-// Inline name + create button (new action / new mode).
-const NewItem: VFC<{ placeholder: string; busy: boolean; onCreate: (name: string) => void }> = ({
-  placeholder,
-  busy,
-  onCreate,
-}) => {
-  const [name, setName] = useState<string>("");
-  return (
-    <div style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
-      <div style={{ flex: 1 }}>
-        <TextRow label={placeholder} value={name} onChange={setName} />
-      </div>
-      <DialogButton
-        style={{ width: "8em" }}
-        disabled={busy || !name.trim()}
-        onClick={() => {
-          onCreate(name.trim());
-          setName("");
-        }}
-      >
-        + Create
-      </DialogButton>
-    </div>
-  );
-};
+// One tab button in the top tab bar.
+const TabButton: VFC<{ active: boolean; label: string; onClick: () => void }> = ({
+  active,
+  label,
+  onClick,
+}) => (
+  <DialogButton
+    onClick={onClick}
+    style={{
+      flex: 1,
+      minWidth: 0,
+      padding: "6px 4px",
+      fontWeight: active ? 700 : 400,
+      background: active ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.04)",
+      borderBottom: active ? "2px solid #1a9fff" : "2px solid transparent",
+      borderRadius: "4px 4px 0 0",
+    }}
+  >
+    {label}
+  </DialogButton>
+);
+
+// A full-width row that drills into an item's detail when clicked.
+const ListRow: VFC<{ label: string; sub?: string; onClick: () => void }> = ({ label, sub, onClick }) => (
+  <DialogButton
+    onClick={onClick}
+    style={{
+      width: "100%",
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: "6px",
+      textAlign: "left",
+    }}
+  >
+    <span style={{ fontWeight: 600 }}>{label}</span>
+    <span style={{ opacity: 0.6, fontSize: "0.85em" }}>{sub ? sub + " ›" : "›"}</span>
+  </DialogButton>
+);
 
 export const EditorModal: VFC<{
   closeModal?: () => void;
@@ -128,6 +145,9 @@ export const EditorModal: VFC<{
   const [dirty, setDirty] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
   const [msg, setMsg] = useState<string>("");
+  const [tab, setTab] = useState<TabId>("actions");
+  const [selAction, setSelAction] = useState<string | null>(null);
+  const [selMode, setSelMode] = useState<string | null>(null);
 
   function mutate(fn: (n: Config) => void) {
     const next = clone(cfg);
@@ -168,6 +188,8 @@ export const EditorModal: VFC<{
         setBusy(false);
         if (r && r.config) setCfg(r.config);
         setDirty(false);
+        setSelAction(null);
+        setSelMode(null);
         setMsg("Reloaded from file");
       })
       .catch((err) => {
@@ -184,188 +206,257 @@ export const EditorModal: VFC<{
     modeIds.map((mid) => ({ data: mid, label: cfgModes[mid].name || mid }))
   );
 
+  function newAction() {
+    const next = clone(cfg);
+    next.actions = next.actions || {};
+    next.modes = next.modes || {};
+    next.settings = next.settings || {};
+    const id = uniqueId(slugify("New action"), next.actions);
+    next.actions[id] = { name: "New action", tasks: [] };
+    setCfg(next);
+    setDirty(true);
+    setSelAction(id);
+  }
+
+  function newMode() {
+    const next = clone(cfg);
+    next.actions = next.actions || {};
+    next.modes = next.modes || {};
+    next.settings = next.settings || {};
+    const id = uniqueId(slugify("New mode"), next.modes);
+    next.modes[id] = { name: "New mode", actions: [] };
+    setCfg(next);
+    setDirty(true);
+    setSelMode(id);
+  }
+
+  // ---- ACTIONS TAB ----
+  function renderActions() {
+    if (selAction && cfgActions[selAction]) {
+      const aid = selAction;
+      const action = cfgActions[aid];
+      return (
+        <div>
+          <DialogButton onClick={() => setSelAction(null)} style={{ marginBottom: "8px" }}>
+            ‹ All actions
+          </DialogButton>
+          <Card title={action.name || aid}>
+            <TextRow
+              label="Name"
+              value={action.name}
+              onChange={(val) => mutate((n) => { n.actions[aid].name = val; })}
+            />
+            <div style={{ fontWeight: 600, margin: "6px 0 2px" }}>Tasks</div>
+            {(action.tasks || []).length === 0 ? (
+              <div style={{ opacity: 0.6, margin: "4px 0" }}>No tasks yet</div>
+            ) : (
+              (action.tasks || []).map((task, ti) => (
+                <Field key={ti} label={summarizeTask(task)} bottomSeparator="none">
+                  <DialogButton
+                    style={{ width: "8em" }}
+                    disabled={busy}
+                    onClick={() => mutate((n) => { n.actions[aid].tasks.splice(ti, 1); })}
+                  >
+                    Remove
+                  </DialogButton>
+                </Field>
+              ))
+            )}
+            <AddTask
+              profiles={profiles}
+              busy={busy}
+              onAdd={(task) =>
+                mutate((n) => {
+                  n.actions[aid].tasks = n.actions[aid].tasks || [];
+                  n.actions[aid].tasks.push(task);
+                })
+              }
+            />
+            <div style={{ marginTop: "10px" }}>
+              <DialogButton
+                disabled={busy}
+                onClick={() => {
+                  mutate((n) => {
+                    delete n.actions[aid];
+                    Object.keys(n.modes).forEach((mid) => {
+                      n.modes[mid].actions = (n.modes[mid].actions || []).filter((x) => x !== aid);
+                    });
+                  });
+                  setSelAction(null);
+                }}
+              >
+                Delete action
+              </DialogButton>
+            </div>
+          </Card>
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <DialogButton onClick={newAction} disabled={busy} style={{ marginBottom: "10px" }}>
+          + New action
+        </DialogButton>
+        {actionIds.length === 0 ? (
+          <div style={{ opacity: 0.6 }}>No actions yet. Use “+ New action” to create one.</div>
+        ) : (
+          actionIds.map((aid) => {
+            const a = cfgActions[aid];
+            const n = (a.tasks || []).length;
+            return (
+              <ListRow
+                key={aid}
+                label={a.name || aid}
+                sub={n + " task" + (n === 1 ? "" : "s")}
+                onClick={() => setSelAction(aid)}
+              />
+            );
+          })
+        )}
+      </div>
+    );
+  }
+
+  // ---- MODES TAB ----
+  function renderModes() {
+    if (selMode && cfgModes[selMode]) {
+      const mid = selMode;
+      const mode = cfgModes[mid];
+      const inMode = mode.actions || [];
+      return (
+        <div>
+          <DialogButton onClick={() => setSelMode(null)} style={{ marginBottom: "8px" }}>
+            ‹ All modes
+          </DialogButton>
+          <Card title={mode.name || mid}>
+            <TextRow
+              label="Name"
+              value={mode.name}
+              onChange={(val) => mutate((n) => { n.modes[mid].name = val; })}
+            />
+            <div style={{ fontWeight: 600, margin: "6px 0 2px" }}>Actions run in this mode</div>
+            {actionIds.length === 0 ? (
+              <div style={{ opacity: 0.6 }}>No actions to assign. Create some in the Actions tab.</div>
+            ) : (
+              actionIds.map((aid) => (
+                <ToggleField
+                  key={aid}
+                  label={cfgActions[aid].name || aid}
+                  checked={inMode.indexOf(aid) !== -1}
+                  disabled={busy}
+                  onChange={(on) =>
+                    mutate((n) => {
+                      const arr = (n.modes[mid].actions = n.modes[mid].actions || []);
+                      const idx = arr.indexOf(aid);
+                      if (on && idx === -1) arr.push(aid);
+                      if (!on && idx !== -1) arr.splice(idx, 1);
+                    })
+                  }
+                />
+              ))
+            )}
+            <div style={{ marginTop: "10px" }}>
+              <DialogButton
+                disabled={busy}
+                onClick={() => {
+                  mutate((n) => {
+                    delete n.modes[mid];
+                    if (n.settings.dockedMode === mid) n.settings.dockedMode = "";
+                    if (n.settings.undockedMode === mid) n.settings.undockedMode = "";
+                  });
+                  setSelMode(null);
+                }}
+              >
+                Delete mode
+              </DialogButton>
+            </div>
+          </Card>
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <DialogButton onClick={newMode} disabled={busy} style={{ marginBottom: "10px" }}>
+          + New mode
+        </DialogButton>
+        {modeIds.length === 0 ? (
+          <div style={{ opacity: 0.6 }}>No modes yet. Use “+ New mode” to create one.</div>
+        ) : (
+          modeIds.map((mid) => (
+            <ListRow key={mid} label={cfgModes[mid].name || mid} onClick={() => setSelMode(mid)} />
+          ))
+        )}
+      </div>
+    );
+  }
+
+  // ---- AUTO-DOCK TAB ----
+  function renderAutoDock() {
+    return (
+      <div>
+        <div style={{ fontSize: "0.8em", opacity: 0.6, marginBottom: "6px" }}>
+          Which mode to switch to when docking / undocking.
+        </div>
+        <DropdownItem
+          label="When docked → mode"
+          rgOptions={modeOpts}
+          selectedOption={cfg.settings.dockedMode || ""}
+          onChange={(o) => mutate((n) => { n.settings.dockedMode = o.data; })}
+        />
+        <DropdownItem
+          label="When undocked → mode"
+          rgOptions={modeOpts}
+          selectedOption={cfg.settings.undockedMode || ""}
+          onChange={(o) => mutate((n) => { n.settings.undockedMode = o.data; })}
+        />
+        <TextRow
+          label="Dock poll interval (seconds)"
+          value={String(cfg.settings.pollSeconds || 3)}
+          onChange={(val) =>
+            mutate((n) => {
+              const num = parseInt(val, 10);
+              n.settings.pollSeconds = isNaN(num) || num < 1 ? 1 : num;
+            })
+          }
+        />
+      </div>
+    );
+  }
+
   return (
     <ModalRoot onCancel={closeModal} onEscKeypress={closeModal}>
-      <div style={{ maxHeight: "78vh", overflowY: "scroll", paddingRight: "6px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-          <div style={{ fontSize: "1.4em", fontWeight: 700 }}>Edit configuration</div>
-          <span style={{ fontSize: "0.8em", opacity: 0.7 }}>{dirty ? "Unsaved changes" : "Saved"}</span>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+        <div style={{ fontSize: "1.4em", fontWeight: 700 }}>Edit configuration</div>
+        <span style={{ fontSize: "0.8em", opacity: 0.7 }}>{dirty ? "Unsaved changes" : "Saved"}</span>
+      </div>
 
-        <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
-          <DialogButton disabled={busy || !dirty} onClick={saveCfg}>
-            Save
-          </DialogButton>
-          <DialogButton disabled={busy} onClick={reload}>
-            {dirty ? "Discard" : "Reload"}
-          </DialogButton>
-          <DialogButton disabled={busy} onClick={() => closeModal?.()}>
-            Close
-          </DialogButton>
-        </div>
-        {msg ? <div style={{ fontSize: "0.8em", opacity: 0.8, marginBottom: "10px" }}>{msg}</div> : null}
+      <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
+        <DialogButton disabled={busy || !dirty} onClick={saveCfg}>
+          Save
+        </DialogButton>
+        <DialogButton disabled={busy} onClick={reload}>
+          {dirty ? "Discard" : "Reload"}
+        </DialogButton>
+        <DialogButton disabled={busy} onClick={() => closeModal?.()}>
+          Close
+        </DialogButton>
+      </div>
+      {msg ? <div style={{ fontSize: "0.8em", opacity: 0.8, marginBottom: "8px" }}>{msg}</div> : null}
 
-        {/* ---- Actions ---- */}
-        <Section title="Actions" hint="An action is an ordered list of tasks.">
-          {actionIds.length === 0 ? (
-            <div style={{ opacity: 0.6 }}>No actions yet.</div>
-          ) : (
-            actionIds.map((aid) => {
-              const action = cfgActions[aid];
-              return (
-                <Card key={aid} title={action.name || aid}>
-                  <TextRow
-                    label="Name"
-                    value={action.name}
-                    onChange={(val) => mutate((n) => { n.actions[aid].name = val; })}
-                  />
-                  {(action.tasks || []).length === 0 ? (
-                    <div style={{ opacity: 0.6, margin: "4px 0" }}>No tasks yet</div>
-                  ) : (
-                    (action.tasks || []).map((task, ti) => (
-                      <Field key={ti} label={summarizeTask(task)} bottomSeparator="none">
-                        <DialogButton
-                          style={{ width: "8em" }}
-                          disabled={busy}
-                          onClick={() => mutate((n) => { n.actions[aid].tasks.splice(ti, 1); })}
-                        >
-                          Remove
-                        </DialogButton>
-                      </Field>
-                    ))
-                  )}
-                  <AddTask
-                    profiles={profiles}
-                    busy={busy}
-                    onAdd={(task) =>
-                      mutate((n) => {
-                        n.actions[aid].tasks = n.actions[aid].tasks || [];
-                        n.actions[aid].tasks.push(task);
-                      })
-                    }
-                  />
-                  <div style={{ marginTop: "6px" }}>
-                    <DialogButton
-                      disabled={busy}
-                      onClick={() =>
-                        mutate((n) => {
-                          delete n.actions[aid];
-                          Object.keys(n.modes).forEach((mid) => {
-                            n.modes[mid].actions = (n.modes[mid].actions || []).filter((x) => x !== aid);
-                          });
-                        })
-                      }
-                    >
-                      Delete action
-                    </DialogButton>
-                  </div>
-                </Card>
-              );
-            })
-          )}
-          <NewItem
-            placeholder="New action name"
-            busy={busy}
-            onCreate={(name) =>
-              mutate((n) => {
-                const id = uniqueId(slugify(name), n.actions);
-                n.actions[id] = { name, tasks: [] };
-              })
-            }
-          />
-        </Section>
+      {/* tab bar */}
+      <div style={{ display: "flex", gap: "4px", marginBottom: "10px" }}>
+        <TabButton active={tab === "actions"} label="Actions" onClick={() => setTab("actions")} />
+        <TabButton active={tab === "modes"} label="Modes" onClick={() => setTab("modes")} />
+        <TabButton active={tab === "autodock"} label="Auto-dock mapping" onClick={() => setTab("autodock")} />
+      </div>
 
-        {/* ---- Modes ---- */}
-        <Section title="Modes" hint="A mode runs a set of actions (manually or on dock/undock).">
-          {modeIds.length === 0 ? (
-            <div style={{ opacity: 0.6 }}>No modes yet.</div>
-          ) : (
-            modeIds.map((mid) => {
-              const mode = cfgModes[mid];
-              const inMode = mode.actions || [];
-              return (
-                <Card key={mid} title={mode.name || mid}>
-                  <TextRow
-                    label="Name"
-                    value={mode.name}
-                    onChange={(val) => mutate((n) => { n.modes[mid].name = val; })}
-                  />
-                  <div style={{ fontSize: "0.75em", opacity: 0.7, margin: "4px 0" }}>Actions run in this mode:</div>
-                  {actionIds.length === 0 ? (
-                    <div style={{ opacity: 0.6 }}>No actions to assign</div>
-                  ) : (
-                    actionIds.map((aid) => (
-                      <ToggleField
-                        key={aid}
-                        label={cfgActions[aid].name || aid}
-                        checked={inMode.indexOf(aid) !== -1}
-                        disabled={busy}
-                        onChange={(on) =>
-                          mutate((n) => {
-                            const arr = (n.modes[mid].actions = n.modes[mid].actions || []);
-                            const idx = arr.indexOf(aid);
-                            if (on && idx === -1) arr.push(aid);
-                            if (!on && idx !== -1) arr.splice(idx, 1);
-                          })
-                        }
-                      />
-                    ))
-                  )}
-                  <div style={{ marginTop: "6px" }}>
-                    <DialogButton
-                      disabled={busy}
-                      onClick={() =>
-                        mutate((n) => {
-                          delete n.modes[mid];
-                          if (n.settings.dockedMode === mid) n.settings.dockedMode = "";
-                          if (n.settings.undockedMode === mid) n.settings.undockedMode = "";
-                        })
-                      }
-                    >
-                      Delete mode
-                    </DialogButton>
-                  </div>
-                </Card>
-              );
-            })
-          )}
-          <NewItem
-            placeholder="New mode name"
-            busy={busy}
-            onCreate={(name) =>
-              mutate((n) => {
-                const id = uniqueId(slugify(name), n.modes);
-                n.modes[id] = { name, actions: [] };
-              })
-            }
-          />
-        </Section>
-
-        {/* ---- Auto-dock mapping ---- */}
-        <Section title="Auto-dock mapping" hint="Which mode to switch to when docking / undocking.">
-          <DropdownItem
-            label="When docked → mode"
-            rgOptions={modeOpts}
-            selectedOption={cfg.settings.dockedMode || ""}
-            onChange={(o) => mutate((n) => { n.settings.dockedMode = o.data; })}
-          />
-          <DropdownItem
-            label="When undocked → mode"
-            rgOptions={modeOpts}
-            selectedOption={cfg.settings.undockedMode || ""}
-            onChange={(o) => mutate((n) => { n.settings.undockedMode = o.data; })}
-          />
-          <TextRow
-            label="Dock poll interval (seconds)"
-            value={String(cfg.settings.pollSeconds || 3)}
-            onChange={(val) =>
-              mutate((n) => {
-                const num = parseInt(val, 10);
-                n.settings.pollSeconds = isNaN(num) || num < 1 ? 1 : num;
-              })
-            }
-          />
-        </Section>
+      {/* tab content */}
+      <div style={{ maxHeight: "62vh", overflowY: "scroll", paddingRight: "6px" }}>
+        {tab === "actions" ? renderActions() : null}
+        {tab === "modes" ? renderModes() : null}
+        {tab === "autodock" ? renderAutoDock() : null}
       </div>
     </ModalRoot>
   );

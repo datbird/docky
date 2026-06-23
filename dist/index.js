@@ -166,12 +166,6 @@
         }
     }
 
-    // A titled group with a subtle header — used to lay out the editor modal
-    // into clear sections (Actions / Modes / Auto-dock) without QAM PanelSections.
-    const Section = ({ title, hint, children }) => (window.SP_REACT.createElement("div", { style: { marginBottom: "16px" } },
-        title ? (window.SP_REACT.createElement("div", { style: { fontSize: "1em", fontWeight: 700, margin: "10px 0 2px" } }, title)) : null,
-        hint ? (window.SP_REACT.createElement("div", { style: { fontSize: "0.75em", opacity: 0.6, marginBottom: "6px" } }, hint)) : null,
-        children));
     // A bordered card wrapping one editable Action or Mode.
     const Card = ({ title, children }) => (window.SP_REACT.createElement("div", { style: {
             border: "1px solid rgba(255,255,255,0.12)",
@@ -222,30 +216,44 @@
             }
             return (window.SP_REACT.createElement(TextRow, { key: f.key, label: f.label, value: vals[f.key], onChange: (val) => setField(f.key, val) }));
         });
-        return (window.SP_REACT.createElement("div", { style: { marginTop: "6px" } },
-            window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Add task", rgOptions: TASK_DEFS.map((d) => ({ data: d.type, label: d.label })), selectedOption: type, onChange: (o) => {
+        return (window.SP_REACT.createElement("div", { style: { marginTop: "8px", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "8px" } },
+            window.SP_REACT.createElement("div", { style: { fontWeight: 600, marginBottom: "2px" } }, "Add a task"),
+            window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Task type", rgOptions: TASK_DEFS.map((d) => ({ data: d.type, label: d.label })), selectedOption: type, onChange: (o) => {
                     setType(o.data);
                     setVals({});
                 } }),
             fieldEls,
             window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !valid, onClick: add }, "+ Add task")));
     };
-    // Inline name + create button (new action / new mode).
-    const NewItem = ({ placeholder, busy, onCreate, }) => {
-        const [name, setName] = react.useState("");
-        return (window.SP_REACT.createElement("div", { style: { display: "flex", gap: "8px", alignItems: "flex-end" } },
-            window.SP_REACT.createElement("div", { style: { flex: 1 } },
-                window.SP_REACT.createElement(TextRow, { label: placeholder, value: name, onChange: setName })),
-            window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { style: { width: "8em" }, disabled: busy || !name.trim(), onClick: () => {
-                    onCreate(name.trim());
-                    setName("");
-                } }, "+ Create")));
-    };
+    // One tab button in the top tab bar.
+    const TabButton = ({ active, label, onClick, }) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: onClick, style: {
+            flex: 1,
+            minWidth: 0,
+            padding: "6px 4px",
+            fontWeight: active ? 700 : 400,
+            background: active ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.04)",
+            borderBottom: active ? "2px solid #1a9fff" : "2px solid transparent",
+            borderRadius: "4px 4px 0 0",
+        } }, label));
+    // A full-width row that drills into an item's detail when clicked.
+    const ListRow = ({ label, sub, onClick }) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: onClick, style: {
+            width: "100%",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "6px",
+            textAlign: "left",
+        } },
+        window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, label),
+        window.SP_REACT.createElement("span", { style: { opacity: 0.6, fontSize: "0.85em" } }, sub ? sub + " ›" : "›")));
     const EditorModal = ({ closeModal, initialConfig, profiles, onSaved }) => {
         const [cfg, setCfg] = react.useState(clone(initialConfig));
         const [dirty, setDirty] = react.useState(false);
         const [busy, setBusy] = react.useState(false);
         const [msg, setMsg] = react.useState("");
+        const [tab, setTab] = react.useState("actions");
+        const [selAction, setSelAction] = react.useState(null);
+        const [selMode, setSelMode] = react.useState(null);
         function mutate(fn) {
             const next = clone(cfg);
             next.actions = next.actions || {};
@@ -286,6 +294,8 @@
                 if (r && r.config)
                     setCfg(r.config);
                 setDirty(false);
+                setSelAction(null);
+                setSelMode(null);
                 setMsg("Reloaded from file");
             })
                 .catch((err) => {
@@ -298,74 +308,126 @@
         const actionIds = Object.keys(cfgActions);
         const modeIds = Object.keys(cfgModes);
         const modeOpts = [{ data: "", label: "(none)" }].concat(modeIds.map((mid) => ({ data: mid, label: cfgModes[mid].name || mid })));
-        return (window.SP_REACT.createElement(deckyFrontendLib.ModalRoot, { onCancel: closeModal, onEscKeypress: closeModal },
-            window.SP_REACT.createElement("div", { style: { maxHeight: "78vh", overflowY: "scroll", paddingRight: "6px" } },
-                window.SP_REACT.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" } },
-                    window.SP_REACT.createElement("div", { style: { fontSize: "1.4em", fontWeight: 700 } }, "Edit configuration"),
-                    window.SP_REACT.createElement("span", { style: { fontSize: "0.8em", opacity: 0.7 } }, dirty ? "Unsaved changes" : "Saved")),
-                window.SP_REACT.createElement("div", { style: { display: "flex", gap: "8px", marginBottom: "12px" } },
-                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !dirty, onClick: saveCfg }, "Save"),
-                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: reload }, dirty ? "Discard" : "Reload"),
-                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => closeModal?.() }, "Close")),
-                msg ? window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.8, marginBottom: "10px" } }, msg) : null,
-                window.SP_REACT.createElement(Section, { title: "Actions", hint: "An action is an ordered list of tasks." },
-                    actionIds.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, "No actions yet.")) : (actionIds.map((aid) => {
-                        const action = cfgActions[aid];
-                        return (window.SP_REACT.createElement(Card, { key: aid, title: action.name || aid },
-                            window.SP_REACT.createElement(TextRow, { label: "Name", value: action.name, onChange: (val) => mutate((n) => { n.actions[aid].name = val; }) }),
-                            (action.tasks || []).length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6, margin: "4px 0" } }, "No tasks yet")) : ((action.tasks || []).map((task, ti) => (window.SP_REACT.createElement(deckyFrontendLib.Field, { key: ti, label: summarizeTask(task), bottomSeparator: "none" },
-                                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { style: { width: "8em" }, disabled: busy, onClick: () => mutate((n) => { n.actions[aid].tasks.splice(ti, 1); }) }, "Remove"))))),
-                            window.SP_REACT.createElement(AddTask, { profiles: profiles, busy: busy, onAdd: (task) => mutate((n) => {
-                                    n.actions[aid].tasks = n.actions[aid].tasks || [];
-                                    n.actions[aid].tasks.push(task);
-                                }) }),
-                            window.SP_REACT.createElement("div", { style: { marginTop: "6px" } },
-                                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => mutate((n) => {
+        function newAction() {
+            const next = clone(cfg);
+            next.actions = next.actions || {};
+            next.modes = next.modes || {};
+            next.settings = next.settings || {};
+            const id = uniqueId(slugify("New action"), next.actions);
+            next.actions[id] = { name: "New action", tasks: [] };
+            setCfg(next);
+            setDirty(true);
+            setSelAction(id);
+        }
+        function newMode() {
+            const next = clone(cfg);
+            next.actions = next.actions || {};
+            next.modes = next.modes || {};
+            next.settings = next.settings || {};
+            const id = uniqueId(slugify("New mode"), next.modes);
+            next.modes[id] = { name: "New mode", actions: [] };
+            setCfg(next);
+            setDirty(true);
+            setSelMode(id);
+        }
+        // ---- ACTIONS TAB ----
+        function renderActions() {
+            if (selAction && cfgActions[selAction]) {
+                const aid = selAction;
+                const action = cfgActions[aid];
+                return (window.SP_REACT.createElement("div", null,
+                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: () => setSelAction(null), style: { marginBottom: "8px" } }, "\u2039 All actions"),
+                    window.SP_REACT.createElement(Card, { title: action.name || aid },
+                        window.SP_REACT.createElement(TextRow, { label: "Name", value: action.name, onChange: (val) => mutate((n) => { n.actions[aid].name = val; }) }),
+                        window.SP_REACT.createElement("div", { style: { fontWeight: 600, margin: "6px 0 2px" } }, "Tasks"),
+                        (action.tasks || []).length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6, margin: "4px 0" } }, "No tasks yet")) : ((action.tasks || []).map((task, ti) => (window.SP_REACT.createElement(deckyFrontendLib.Field, { key: ti, label: summarizeTask(task), bottomSeparator: "none" },
+                            window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { style: { width: "8em" }, disabled: busy, onClick: () => mutate((n) => { n.actions[aid].tasks.splice(ti, 1); }) }, "Remove"))))),
+                        window.SP_REACT.createElement(AddTask, { profiles: profiles, busy: busy, onAdd: (task) => mutate((n) => {
+                                n.actions[aid].tasks = n.actions[aid].tasks || [];
+                                n.actions[aid].tasks.push(task);
+                            }) }),
+                        window.SP_REACT.createElement("div", { style: { marginTop: "10px" } },
+                            window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => {
+                                    mutate((n) => {
                                         delete n.actions[aid];
                                         Object.keys(n.modes).forEach((mid) => {
                                             n.modes[mid].actions = (n.modes[mid].actions || []).filter((x) => x !== aid);
                                         });
-                                    }) }, "Delete action"))));
-                    })),
-                    window.SP_REACT.createElement(NewItem, { placeholder: "New action name", busy: busy, onCreate: (name) => mutate((n) => {
-                            const id = uniqueId(slugify(name), n.actions);
-                            n.actions[id] = { name, tasks: [] };
-                        }) })),
-                window.SP_REACT.createElement(Section, { title: "Modes", hint: "A mode runs a set of actions (manually or on dock/undock)." },
-                    modeIds.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, "No modes yet.")) : (modeIds.map((mid) => {
-                        const mode = cfgModes[mid];
-                        const inMode = mode.actions || [];
-                        return (window.SP_REACT.createElement(Card, { key: mid, title: mode.name || mid },
-                            window.SP_REACT.createElement(TextRow, { label: "Name", value: mode.name, onChange: (val) => mutate((n) => { n.modes[mid].name = val; }) }),
-                            window.SP_REACT.createElement("div", { style: { fontSize: "0.75em", opacity: 0.7, margin: "4px 0" } }, "Actions run in this mode:"),
-                            actionIds.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, "No actions to assign")) : (actionIds.map((aid) => (window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { key: aid, label: cfgActions[aid].name || aid, checked: inMode.indexOf(aid) !== -1, disabled: busy, onChange: (on) => mutate((n) => {
-                                    const arr = (n.modes[mid].actions = n.modes[mid].actions || []);
-                                    const idx = arr.indexOf(aid);
-                                    if (on && idx === -1)
-                                        arr.push(aid);
-                                    if (!on && idx !== -1)
-                                        arr.splice(idx, 1);
-                                }) })))),
-                            window.SP_REACT.createElement("div", { style: { marginTop: "6px" } },
-                                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => mutate((n) => {
+                                    });
+                                    setSelAction(null);
+                                } }, "Delete action")))));
+            }
+            return (window.SP_REACT.createElement("div", null,
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: newAction, disabled: busy, style: { marginBottom: "10px" } }, "+ New action"),
+                actionIds.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, "No actions yet. Use \u201C+ New action\u201D to create one.")) : (actionIds.map((aid) => {
+                    const a = cfgActions[aid];
+                    const n = (a.tasks || []).length;
+                    return (window.SP_REACT.createElement(ListRow, { key: aid, label: a.name || aid, sub: n + " task" + (n === 1 ? "" : "s"), onClick: () => setSelAction(aid) }));
+                }))));
+        }
+        // ---- MODES TAB ----
+        function renderModes() {
+            if (selMode && cfgModes[selMode]) {
+                const mid = selMode;
+                const mode = cfgModes[mid];
+                const inMode = mode.actions || [];
+                return (window.SP_REACT.createElement("div", null,
+                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: () => setSelMode(null), style: { marginBottom: "8px" } }, "\u2039 All modes"),
+                    window.SP_REACT.createElement(Card, { title: mode.name || mid },
+                        window.SP_REACT.createElement(TextRow, { label: "Name", value: mode.name, onChange: (val) => mutate((n) => { n.modes[mid].name = val; }) }),
+                        window.SP_REACT.createElement("div", { style: { fontWeight: 600, margin: "6px 0 2px" } }, "Actions run in this mode"),
+                        actionIds.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, "No actions to assign. Create some in the Actions tab.")) : (actionIds.map((aid) => (window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { key: aid, label: cfgActions[aid].name || aid, checked: inMode.indexOf(aid) !== -1, disabled: busy, onChange: (on) => mutate((n) => {
+                                const arr = (n.modes[mid].actions = n.modes[mid].actions || []);
+                                const idx = arr.indexOf(aid);
+                                if (on && idx === -1)
+                                    arr.push(aid);
+                                if (!on && idx !== -1)
+                                    arr.splice(idx, 1);
+                            }) })))),
+                        window.SP_REACT.createElement("div", { style: { marginTop: "10px" } },
+                            window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => {
+                                    mutate((n) => {
                                         delete n.modes[mid];
                                         if (n.settings.dockedMode === mid)
                                             n.settings.dockedMode = "";
                                         if (n.settings.undockedMode === mid)
                                             n.settings.undockedMode = "";
-                                    }) }, "Delete mode"))));
-                    })),
-                    window.SP_REACT.createElement(NewItem, { placeholder: "New mode name", busy: busy, onCreate: (name) => mutate((n) => {
-                            const id = uniqueId(slugify(name), n.modes);
-                            n.modes[id] = { name, actions: [] };
-                        }) })),
-                window.SP_REACT.createElement(Section, { title: "Auto-dock mapping", hint: "Which mode to switch to when docking / undocking." },
-                    window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When docked \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.dockedMode || "", onChange: (o) => mutate((n) => { n.settings.dockedMode = o.data; }) }),
-                    window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When undocked \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.undockedMode || "", onChange: (o) => mutate((n) => { n.settings.undockedMode = o.data; }) }),
-                    window.SP_REACT.createElement(TextRow, { label: "Dock poll interval (seconds)", value: String(cfg.settings.pollSeconds || 3), onChange: (val) => mutate((n) => {
-                            const num = parseInt(val, 10);
-                            n.settings.pollSeconds = isNaN(num) || num < 1 ? 1 : num;
-                        }) })))));
+                                    });
+                                    setSelMode(null);
+                                } }, "Delete mode")))));
+            }
+            return (window.SP_REACT.createElement("div", null,
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: newMode, disabled: busy, style: { marginBottom: "10px" } }, "+ New mode"),
+                modeIds.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, "No modes yet. Use \u201C+ New mode\u201D to create one.")) : (modeIds.map((mid) => (window.SP_REACT.createElement(ListRow, { key: mid, label: cfgModes[mid].name || mid, onClick: () => setSelMode(mid) }))))));
+        }
+        // ---- AUTO-DOCK TAB ----
+        function renderAutoDock() {
+            return (window.SP_REACT.createElement("div", null,
+                window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.6, marginBottom: "6px" } }, "Which mode to switch to when docking / undocking."),
+                window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When docked \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.dockedMode || "", onChange: (o) => mutate((n) => { n.settings.dockedMode = o.data; }) }),
+                window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When undocked \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.undockedMode || "", onChange: (o) => mutate((n) => { n.settings.undockedMode = o.data; }) }),
+                window.SP_REACT.createElement(TextRow, { label: "Dock poll interval (seconds)", value: String(cfg.settings.pollSeconds || 3), onChange: (val) => mutate((n) => {
+                        const num = parseInt(val, 10);
+                        n.settings.pollSeconds = isNaN(num) || num < 1 ? 1 : num;
+                    }) })));
+        }
+        return (window.SP_REACT.createElement(deckyFrontendLib.ModalRoot, { onCancel: closeModal, onEscKeypress: closeModal },
+            window.SP_REACT.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" } },
+                window.SP_REACT.createElement("div", { style: { fontSize: "1.4em", fontWeight: 700 } }, "Edit configuration"),
+                window.SP_REACT.createElement("span", { style: { fontSize: "0.8em", opacity: 0.7 } }, dirty ? "Unsaved changes" : "Saved")),
+            window.SP_REACT.createElement("div", { style: { display: "flex", gap: "8px", marginBottom: "10px" } },
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !dirty, onClick: saveCfg }, "Save"),
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: reload }, dirty ? "Discard" : "Reload"),
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => closeModal?.() }, "Close")),
+            msg ? window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.8, marginBottom: "8px" } }, msg) : null,
+            window.SP_REACT.createElement("div", { style: { display: "flex", gap: "4px", marginBottom: "10px" } },
+                window.SP_REACT.createElement(TabButton, { active: tab === "actions", label: "Actions", onClick: () => setTab("actions") }),
+                window.SP_REACT.createElement(TabButton, { active: tab === "modes", label: "Modes", onClick: () => setTab("modes") }),
+                window.SP_REACT.createElement(TabButton, { active: tab === "autodock", label: "Auto-dock mapping", onClick: () => setTab("autodock") })),
+            window.SP_REACT.createElement("div", { style: { maxHeight: "62vh", overflowY: "scroll", paddingRight: "6px" } },
+                tab === "actions" ? renderActions() : null,
+                tab === "modes" ? renderModes() : null,
+                tab === "autodock" ? renderAutoDock() : null)));
     };
 
     function DockIcon() {
