@@ -39,18 +39,43 @@ function SettingsIcon() {
   );
 }
 
-// Compact icon button for the top action row.
-const IconButton: VFC<{ label: string; disabled?: boolean; onClick: () => void; children: any }> = ({
-  label,
-  disabled,
-  onClick,
-  children,
-}) => (
+function RestartIcon() {
+  return (
+    <svg width="1.2em" height="1.2em" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg width="1.2em" height="1.2em" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg width="1.2em" height="1.2em" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M6 6h12v12H6z" />
+    </svg>
+  );
+}
+
+// Compact icon button for action rows. Omit `label` for an icon-only button.
+const IconButton: VFC<{
+  label?: string;
+  flex?: number;
+  disabled?: boolean;
+  onClick: () => void;
+  children: any;
+}> = ({ label, flex, disabled, onClick, children }) => (
   <DialogButton
     disabled={disabled}
     onClick={onClick}
     style={{
-      flex: 1,
+      flex: flex ?? 1,
       minWidth: 0,
       display: "flex",
       alignItems: "center",
@@ -60,7 +85,7 @@ const IconButton: VFC<{ label: string; disabled?: boolean; onClick: () => void; 
     }}
   >
     {children}
-    <span style={{ fontSize: "0.85em" }}>{label}</span>
+    {label ? <span style={{ fontSize: "0.85em" }}>{label}</span> : null}
   </DialogButton>
 );
 
@@ -241,44 +266,48 @@ const Content: VFC = () => {
           </Field>
         </PanelSectionRow>
         <PanelSectionRow>
-          <ButtonItem
-            layout="below"
-            disabled={busy || !(state.sunshine && state.sunshine.installed)}
-            onClick={() =>
-              state.sunshine && state.sunshine.running
-                ? sunshineControl("sunshine_stop", "Stopping")
-                : sunshineControl("sunshine_start", "Starting")
-            }
+          <Focusable
+            flow-children="horizontal"
+            style={{ display: "flex", gap: "8px" }}
           >
-            {state.sunshine && state.sunshine.running
-              ? "Stop Sunshine"
-              : "Start Sunshine"}
-          </ButtonItem>
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <ButtonItem
-            layout="below"
-            disabled={busy || !(state.sunshine && state.sunshine.running)}
-            onClick={() => sunshineControl("sunshine_restart", "Restarting")}
-          >
-            Restart Sunshine
-          </ButtonItem>
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <ButtonItem
-            layout="below"
-            disabled={busy}
-            onClick={() =>
-              showModal(
-                <PairModal
-                  credsStored={!!(state.sunshine && state.sunshine.credsStored)}
-                  onState={(st) => st && setState(st)}
-                />
-              )
-            }
-          >
-            Pair a device…
-          </ButtonItem>
+            <IconButton
+              label="Pair"
+              flex={2}
+              disabled={busy}
+              onClick={() =>
+                showModal(
+                  <PairModal
+                    credsStored={
+                      !!(state.sunshine && state.sunshine.credsStored)
+                    }
+                    onState={(st) => st && setState(st)}
+                  />
+                )
+              }
+            >
+              <DockIcon />
+            </IconButton>
+            <IconButton
+              disabled={busy || !(state.sunshine && state.sunshine.running)}
+              onClick={() => sunshineControl("sunshine_restart", "Restarting")}
+            >
+              <RestartIcon />
+            </IconButton>
+            <IconButton
+              disabled={busy || !(state.sunshine && state.sunshine.installed)}
+              onClick={() =>
+                state.sunshine && state.sunshine.running
+                  ? sunshineControl("sunshine_stop", "Stopping")
+                  : sunshineControl("sunshine_start", "Starting")
+              }
+            >
+              {state.sunshine && state.sunshine.running ? (
+                <StopIcon />
+              ) : (
+                <PlayIcon />
+              )}
+            </IconButton>
+          </Focusable>
         </PanelSectionRow>
         <PanelSectionRow>
           <ToggleField
