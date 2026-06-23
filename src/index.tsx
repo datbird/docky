@@ -264,6 +264,18 @@ const Content: VFC = () => {
           </Focusable>
         </PanelSectionRow>
         <PanelSectionRow>
+          <ToggleField
+            label="Auto Dock Detection"
+            description="Auto-switch modes when you dock/undock"
+            checked={!!sett.autoDockDetection}
+            disabled={busy}
+            onChange={toggleAuto}
+          />
+        </PanelSectionRow>
+      </PanelSection>
+
+      <PanelSection title="Sunshine">
+        <PanelSectionRow>
           <Focusable
             flow-children="horizontal"
             style={{ display: "flex", gap: "8px" }}
@@ -314,15 +326,6 @@ const Content: VFC = () => {
             checked={sett.autostartSunshine !== false}
             disabled={busy}
             onChange={toggleAutostartSunshine}
-          />
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <ToggleField
-            label="Auto Dock Detection"
-            description="Auto-switch modes when you dock/undock"
-            checked={!!sett.autoDockDetection}
-            disabled={busy}
-            onChange={toggleAuto}
           />
         </PanelSectionRow>
       </PanelSection>

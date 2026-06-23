@@ -871,6 +871,9 @@
                         window.SP_REACT.createElement(IconButton, { label: "Settings", disabled: busy, onClick: openEditor },
                             window.SP_REACT.createElement(SettingsIcon, null)))),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Auto Dock Detection", description: "Auto-switch modes when you dock/undock", checked: !!sett.autoDockDetection, disabled: busy, onChange: toggleAuto }))),
+            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Sunshine" },
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px" } },
                         window.SP_REACT.createElement(IconButton, { label: "Pair", flex: 2, disabled: busy, onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(PairModal, { credsStored: !!(state.sunshine && state.sunshine.credsStored), onState: (st) => st && setState(st) })) },
                             window.SP_REACT.createElement(DockIcon, null)),
@@ -880,9 +883,7 @@
                                 ? sunshineControl("sunshine_stop", "Stopping")
                                 : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null))))),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Start Sunshine at boot", description: "Launch Sunshine when Docky loads after a reboot", checked: sett.autostartSunshine !== false, disabled: busy, onChange: toggleAutostartSunshine })),
-                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Auto Dock Detection", description: "Auto-switch modes when you dock/undock", checked: !!sett.autoDockDetection, disabled: busy, onChange: toggleAuto }))),
+                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Start Sunshine at boot", description: "Launch Sunshine when Docky loads after a reboot", checked: sett.autostartSunshine !== false, disabled: busy, onChange: toggleAutostartSunshine }))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Modes" }, modes.length ? (modes.map((mode) => {
                 const isActive = mode.id === state.activeMode;
                 const isSugg = mode.id === state.suggestedMode && !isActive;
