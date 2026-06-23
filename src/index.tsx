@@ -131,6 +131,25 @@ const Content: VFC = () => {
       });
   }
 
+  function sunshineControl(
+    method: "sunshine_start" | "sunshine_stop" | "sunshine_restart",
+    verb: string
+  ) {
+    setBusy(true);
+    setMsg(verb + " Sunshine…");
+    call<{ ok?: boolean; message?: string; state?: DockyState }>(method, {})
+      .then((r) => {
+        setBusy(false);
+        if (r && r.state) setState(r.state);
+        else refresh();
+        setMsg(r && r.message ? r.message : verb + " done");
+      })
+      .catch((err) => {
+        setBusy(false);
+        setMsg("Error: " + errText(err));
+      });
+  }
+
   function openEditor() {
     setBusy(true);
     call<any>("get_config", {})
@@ -211,7 +230,7 @@ const Content: VFC = () => {
           </Field>
         </PanelSectionRow>
         <PanelSectionRow>
-          <Field label="Sunshine" bottomSeparator="thick">
+          <Field label="Sunshine">
             {state.sunshine
               ? state.sunshine.running
                 ? "Streaming"
@@ -220,6 +239,30 @@ const Content: VFC = () => {
                   : "Not installed"
               : "—"}
           </Field>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            disabled={busy || !(state.sunshine && state.sunshine.installed)}
+            onClick={() =>
+              state.sunshine && state.sunshine.running
+                ? sunshineControl("sunshine_stop", "Stopping")
+                : sunshineControl("sunshine_start", "Starting")
+            }
+          >
+            {state.sunshine && state.sunshine.running
+              ? "Stop Sunshine"
+              : "Start Sunshine"}
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            disabled={busy || !(state.sunshine && state.sunshine.running)}
+            onClick={() => sunshineControl("sunshine_restart", "Restarting")}
+          >
+            Restart Sunshine
+          </ButtonItem>
         </PanelSectionRow>
         <PanelSectionRow>
           <ButtonItem

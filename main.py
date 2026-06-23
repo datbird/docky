@@ -114,6 +114,35 @@ class Plugin:
             decky.logger.exception("set_autostart_sunshine failed")
             return {"error": str(e)}
 
+    # Sunshine start/stop/restart block while waiting on the port, so run them
+    # off the event loop to keep the UI responsive.
+    async def sunshine_start(self):
+        try:
+            res = await asyncio.to_thread(docky.sunshine_start)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("sunshine_start failed")
+            return {"ok": False, "message": str(e)}
+
+    async def sunshine_stop(self):
+        try:
+            res = await asyncio.to_thread(docky.sunshine_stop)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("sunshine_stop failed")
+            return {"ok": False, "message": str(e)}
+
+    async def sunshine_restart(self):
+        try:
+            res = await asyncio.to_thread(docky.sunshine_restart)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("sunshine_restart failed")
+            return {"ok": False, "message": str(e)}
+
     async def sunshine_pair(self, pin, name):
         try:
             return docky.sunshine_pair(pin, name)

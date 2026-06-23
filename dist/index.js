@@ -765,6 +765,23 @@
                 setMsg("Error: " + errText(err));
             });
         }
+        function sunshineControl(method, verb) {
+            setBusy(true);
+            setMsg(verb + " Sunshine…");
+            call(method, {})
+                .then((r) => {
+                setBusy(false);
+                if (r && r.state)
+                    setState(r.state);
+                else
+                    refresh();
+                setMsg(r && r.message ? r.message : verb + " done");
+            })
+                .catch((err) => {
+                setBusy(false);
+                setMsg("Error: " + errText(err));
+            });
+        }
         function openEditor() {
             setBusy(true);
             call("get_config", {})
@@ -815,13 +832,21 @@
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Field, { label: "Active mode", bottomSeparator: "thick" }, activeName)),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.Field, { label: "Sunshine", bottomSeparator: "thick" }, state.sunshine
+                    window.SP_REACT.createElement(deckyFrontendLib.Field, { label: "Sunshine" }, state.sunshine
                         ? state.sunshine.running
                             ? "Streaming"
                             : state.sunshine.installed
                                 ? "Installed"
                                 : "Not installed"
                         : "—")),
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy || !(state.sunshine && state.sunshine.installed), onClick: () => state.sunshine && state.sunshine.running
+                            ? sunshineControl("sunshine_stop", "Stopping")
+                            : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running
+                        ? "Stop Sunshine"
+                        : "Start Sunshine")),
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy || !(state.sunshine && state.sunshine.running), onClick: () => sunshineControl("sunshine_restart", "Restarting") }, "Restart Sunshine")),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(PairModal, { credsStored: !!(state.sunshine && state.sunshine.credsStored), onState: (st) => st && setState(st) })) }, "Pair a device\u2026")),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,

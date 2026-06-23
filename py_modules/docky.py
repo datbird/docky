@@ -402,6 +402,24 @@ def autostart_sunshine():
     return True, ok, msg
 
 
+def sunshine_start():
+    """Start the Sunshine engine (no-op if already running)."""
+    ok, msg = sunshine.start()
+    return {"ok": ok, "message": msg}
+
+
+def sunshine_stop():
+    """Stop the Sunshine engine."""
+    ok, msg = sunshine.stop()
+    return {"ok": ok, "message": msg}
+
+
+def sunshine_restart():
+    """Restart the Sunshine engine."""
+    ok, msg = sunshine.restart()
+    return {"ok": ok, "message": msg}
+
+
 def set_sunshine_login(username, password):
     """Set/reset Sunshine's admin login and remember it for pairing."""
     ok, msg, auth = sunshine.set_login(username, password)
