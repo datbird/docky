@@ -69,6 +69,7 @@
         {
             type: "pcsx2_profile",
             label: "PCSX2 controller profile",
+            builtin: true,
             fields: [
                 { key: "profile", kind: "profile", label: "Profile" },
                 { key: "force", kind: "bool", label: "Force (apply even while PCSX2 runs)" },
@@ -150,6 +151,10 @@
             summary: (t) => "delete: " + t.path,
         },
     ];
+    // Curated Docky tasks (shown under the "Docky built-in task" sub-picker).
+    const BUILTIN_DEFS = TASK_DEFS.filter((d) => d.builtin);
+    // Generic file/script ops (listed directly in the task-type dropdown).
+    const GENERIC_DEFS = TASK_DEFS.filter((d) => !d.builtin);
     function taskDef(type) {
         for (const d of TASK_DEFS)
             if (d.type === type)
@@ -179,11 +184,19 @@
     const TextRow = (props) => (window.SP_REACT.createElement(deckyFrontendLib.Field, { label: props.label, childrenLayout: "below", bottomSeparator: "none" },
         window.SP_REACT.createElement(deckyFrontendLib.TextField, { value: props.value || "", onChange: (e) => props.onChange(e.target.value) })));
 
+    // Sentinel for the top-level dropdown entry that groups the curated Docky tasks.
+    const DOCKY_BUILTIN = "__docky_builtin__";
     // Add-task form for one action: pick a type, fill its fields, append.
+    // Curated Docky tasks (e.g. PCSX2 profile) live behind a "Docky built-in task"
+    // entry with its own sub-dropdown; generic ops are listed directly.
     const AddTask = ({ profiles, busy, onAdd, }) => {
-        const [type, setType] = react.useState("pcsx2_profile");
+        const hasBuiltins = BUILTIN_DEFS.length > 0;
+        const [top, setTop] = react.useState(hasBuiltins ? DOCKY_BUILTIN : GENERIC_DEFS[0] ? GENERIC_DEFS[0].type : "");
+        const [builtinType, setBuiltinType] = react.useState(BUILTIN_DEFS[0] ? BUILTIN_DEFS[0].type : "");
         const [vals, setVals] = react.useState({});
+        const type = top === DOCKY_BUILTIN ? builtinType : top;
         const def = taskDef(type);
+        const topOptions = (hasBuiltins ? [{ data: DOCKY_BUILTIN, label: "Docky built-in task" }] : []).concat(GENERIC_DEFS.map((d) => ({ data: d.type, label: d.label })));
         const setField = (k, val) => setVals({ ...vals, [k]: val });
         const add = () => {
             const task = { type };
@@ -218,10 +231,14 @@
         });
         return (window.SP_REACT.createElement("div", { style: { marginTop: "8px", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "8px" } },
             window.SP_REACT.createElement("div", { style: { fontWeight: 600, marginBottom: "2px" } }, "Add a task"),
-            window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Task type", rgOptions: TASK_DEFS.map((d) => ({ data: d.type, label: d.label })), selectedOption: type, onChange: (o) => {
-                    setType(o.data);
+            window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Task type", rgOptions: topOptions, selectedOption: top, onChange: (o) => {
+                    setTop(o.data);
                     setVals({});
                 } }),
+            top === DOCKY_BUILTIN && BUILTIN_DEFS.length > 0 ? (window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Built-in task", rgOptions: BUILTIN_DEFS.map((d) => ({ data: d.type, label: d.label })), selectedOption: builtinType, onChange: (o) => {
+                    setBuiltinType(o.data);
+                    setVals({});
+                } })) : null,
             fieldEls,
             window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !valid, onClick: add }, "+ Add task")));
     };

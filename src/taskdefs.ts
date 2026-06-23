@@ -13,6 +13,10 @@ export interface TaskTypeDef {
   label: string;
   fields: TaskField[];
   summary: (t: Task) => string;
+  // Curated, Docky-specific tasks (e.g. the PCSX2 profile swap) are grouped
+  // behind a "Docky built-in task" picker; generic file/script ops are listed
+  // directly. Add more built-ins by setting builtin: true.
+  builtin?: boolean;
 }
 
 // Built-in task types. The PCSX2 controller-profile task is the marquee one;
@@ -21,6 +25,7 @@ export const TASK_DEFS: TaskTypeDef[] = [
   {
     type: "pcsx2_profile",
     label: "PCSX2 controller profile",
+    builtin: true,
     fields: [
       { key: "profile", kind: "profile", label: "Profile" },
       { key: "force", kind: "bool", label: "Force (apply even while PCSX2 runs)" },
@@ -102,6 +107,11 @@ export const TASK_DEFS: TaskTypeDef[] = [
     summary: (t) => "delete: " + t.path,
   },
 ];
+
+// Curated Docky tasks (shown under the "Docky built-in task" sub-picker).
+export const BUILTIN_DEFS: TaskTypeDef[] = TASK_DEFS.filter((d) => d.builtin);
+// Generic file/script ops (listed directly in the task-type dropdown).
+export const GENERIC_DEFS: TaskTypeDef[] = TASK_DEFS.filter((d) => !d.builtin);
 
 export function taskDef(type: string): TaskTypeDef | null {
   for (const d of TASK_DEFS) if (d.type === type) return d;

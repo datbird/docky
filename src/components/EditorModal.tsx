@@ -7,20 +7,35 @@ import {
   DropdownItem,
 } from "decky-frontend-lib";
 import { Config, Task, call, clone, errText, slugify, toast, uniqueId } from "../util";
-import { TASK_DEFS, taskDef, summarizeTask } from "../taskdefs";
+import { BUILTIN_DEFS, GENERIC_DEFS, taskDef, summarizeTask } from "../taskdefs";
 import { Card, TextRow } from "./inputs";
 
 type TabId = "actions" | "modes" | "autodock";
 
+// Sentinel for the top-level dropdown entry that groups the curated Docky tasks.
+const DOCKY_BUILTIN = "__docky_builtin__";
+
 // Add-task form for one action: pick a type, fill its fields, append.
+// Curated Docky tasks (e.g. PCSX2 profile) live behind a "Docky built-in task"
+// entry with its own sub-dropdown; generic ops are listed directly.
 const AddTask: VFC<{ profiles: string[]; busy: boolean; onAdd: (t: Task) => void }> = ({
   profiles,
   busy,
   onAdd,
 }) => {
-  const [type, setType] = useState<string>("pcsx2_profile");
+  const hasBuiltins = BUILTIN_DEFS.length > 0;
+  const [top, setTop] = useState<string>(
+    hasBuiltins ? DOCKY_BUILTIN : GENERIC_DEFS[0] ? GENERIC_DEFS[0].type : ""
+  );
+  const [builtinType, setBuiltinType] = useState<string>(BUILTIN_DEFS[0] ? BUILTIN_DEFS[0].type : "");
   const [vals, setVals] = useState<Record<string, any>>({});
+
+  const type = top === DOCKY_BUILTIN ? builtinType : top;
   const def = taskDef(type)!;
+
+  const topOptions = (hasBuiltins ? [{ data: DOCKY_BUILTIN, label: "Docky built-in task" }] : []).concat(
+    GENERIC_DEFS.map((d) => ({ data: d.type, label: d.label }))
+  );
 
   const setField = (k: string, val: any) => setVals({ ...vals, [k]: val });
 
@@ -80,13 +95,24 @@ const AddTask: VFC<{ profiles: string[]; busy: boolean; onAdd: (t: Task) => void
       <div style={{ fontWeight: 600, marginBottom: "2px" }}>Add a task</div>
       <DropdownItem
         label="Task type"
-        rgOptions={TASK_DEFS.map((d) => ({ data: d.type, label: d.label }))}
-        selectedOption={type}
+        rgOptions={topOptions}
+        selectedOption={top}
         onChange={(o) => {
-          setType(o.data);
+          setTop(o.data);
           setVals({});
         }}
       />
+      {top === DOCKY_BUILTIN && BUILTIN_DEFS.length > 0 ? (
+        <DropdownItem
+          label="Built-in task"
+          rgOptions={BUILTIN_DEFS.map((d) => ({ data: d.type, label: d.label }))}
+          selectedOption={builtinType}
+          onChange={(o) => {
+            setBuiltinType(o.data);
+            setVals({});
+          }}
+        />
+      ) : null}
       {fieldEls}
       <DialogButton disabled={busy || !valid} onClick={add}>
         + Add task
