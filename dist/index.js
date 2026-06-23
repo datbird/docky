@@ -86,6 +86,16 @@
             summary: (t) => "PCSX2 profile: " + (t.profile || "?"),
         },
         {
+            type: "sunshine_composition",
+            label: "Sunshine: force composition (fix docked stretch)",
+            builtin: true,
+            requiresPlugin: "decky-sunshine",
+            fields: [
+                { key: "enabled", kind: "bool", label: "Force composition on" },
+            ],
+            summary: (t) => "Sunshine composition: " + (t.enabled ? "on" : "off"),
+        },
+        {
             type: "run",
             label: "Run command",
             fields: [
@@ -222,14 +232,16 @@
     // Add-task form for one action: pick a type, fill its fields, append.
     // Curated Docky tasks (e.g. PCSX2 profile) live behind a "Docky built-in task"
     // entry with its own sub-dropdown; generic ops are listed directly.
-    const AddTask = ({ profiles, busy, onAdd, taskSettings, onChangeTaskSetting }) => {
+    const AddTask = ({ profiles, busy, onAdd, taskSettings, onChangeTaskSetting, installedPlugins }) => {
+        const pluginOk = (d) => !d.requiresPlugin || installedPlugins.indexOf(d.requiresPlugin) !== -1;
+        const optLabel = (d) => pluginOk(d) ? d.label : d.label + ` (needs ${d.requiresPlugin})`;
         const hasBuiltins = BUILTIN_DEFS.length > 0;
         const [top, setTop] = react.useState(hasBuiltins ? DOCKY_BUILTIN : GENERIC_DEFS[0] ? GENERIC_DEFS[0].type : "");
         const [builtinType, setBuiltinType] = react.useState(BUILTIN_DEFS[0] ? BUILTIN_DEFS[0].type : "");
         const [vals, setVals] = react.useState({});
         const type = top === DOCKY_BUILTIN ? builtinType : top;
         const def = taskDef(type);
-        const topOptions = (hasBuiltins ? [{ data: DOCKY_BUILTIN, label: "Docky built-in task" }] : []).concat(GENERIC_DEFS.map((d) => ({ data: d.type, label: d.label })));
+        const topOptions = (hasBuiltins ? [{ data: DOCKY_BUILTIN, label: "Docky built-in task" }] : []).concat(GENERIC_DEFS.map((d) => ({ data: d.type, label: optLabel(d) })));
         const setField = (k, val) => setVals({ ...vals, [k]: val });
         const add = () => {
             const task = { type };
@@ -248,7 +260,7 @@
             onAdd(task);
             setVals({});
         };
-        const valid = type === "pcsx2_profile" ? profiles.length > 0 : true;
+        const valid = pluginOk(def) && (type === "pcsx2_profile" ? profiles.length > 0 : true);
         const fieldEls = def.fields.map((f) => {
             if (f.kind === "bool") {
                 return (window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { key: f.key, label: f.label, checked: !!vals[f.key], onChange: (val) => setField(f.key, val) }));
@@ -276,7 +288,7 @@
                     } }),
                 window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px", alignItems: "center" } },
                     window.SP_REACT.createElement("div", { style: { flex: 1 } },
-                        window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Built-in task", rgOptions: BUILTIN_DEFS.map((d) => ({ data: d.type, label: d.label })), selectedOption: builtinType, onChange: (o) => {
+                        window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Built-in task", rgOptions: BUILTIN_DEFS.map((d) => ({ data: d.type, label: optLabel(d) })), selectedOption: builtinType, onChange: (o) => {
                                 setBuiltinType(o.data);
                                 setVals({});
                             } })),
@@ -287,7 +299,10 @@
                             setVals({});
                         } })),
                 gear)),
-            fieldEls,
+            !pluginOk(def) ? (window.SP_REACT.createElement("div", { style: { color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" } },
+                "Requires the \u201C",
+                def.requiresPlugin,
+                "\u201D plugin, which isn\u2019t installed.")) : (fieldEls),
             window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !valid, onClick: add }, "+ Add task")));
     };
     // One tab button in the top tab bar.
@@ -311,7 +326,7 @@
         } },
         window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, label),
         window.SP_REACT.createElement("span", { style: { opacity: 0.6, fontSize: "0.85em" } }, sub ? sub + " ›" : "›")));
-    const EditorModal = ({ closeModal, initialConfig, profiles, onSaved }) => {
+    const EditorModal = ({ closeModal, initialConfig, profiles, installedPlugins, onSaved }) => {
         const [cfg, setCfg] = react.useState(clone(initialConfig));
         const [dirty, setDirty] = react.useState(false);
         const [busy, setBusy] = react.useState(false);
@@ -414,7 +429,7 @@
                                 n.taskSettings = n.taskSettings || {};
                                 n.taskSettings[type] = n.taskSettings[type] || {};
                                 n.taskSettings[type][key] = value;
-                            }) }),
+                            }), installedPlugins: installedPlugins }),
                         window.SP_REACT.createElement("div", { style: { marginTop: "10px" } },
                             window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => {
                                     mutate((n) => {
@@ -586,7 +601,7 @@
                 .then((r) => {
                 setBusy(false);
                 const config = r && r.config ? r.config : { actions: {}, modes: {}, settings: {} };
-                deckyFrontendLib.showModal(window.SP_REACT.createElement(EditorModal, { initialConfig: config, profiles: (state && state.pcsx2_profiles) || [], onSaved: (st) => {
+                deckyFrontendLib.showModal(window.SP_REACT.createElement(EditorModal, { initialConfig: config, profiles: (state && state.pcsx2_profiles) || [], installedPlugins: (state && state.installed_plugins) || [], onSaved: (st) => {
                         if (st)
                             setState(st);
                         else

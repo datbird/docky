@@ -125,6 +125,7 @@ const Content: VFC = () => {
           <EditorModal
             initialConfig={config}
             profiles={(state && state.pcsx2_profiles) || []}
+            installedPlugins={(state && state.installed_plugins) || []}
             onSaved={(st) => {
               if (st) setState(st);
               else refresh();

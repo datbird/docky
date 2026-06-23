@@ -218,6 +218,22 @@ def run_task(task, allow_running_emu=True):
                                     timeout=task.get("timeout", DEFAULT_TIMEOUT))
             r.update(ok=ok, message=msg)
 
+        elif t == "sunshine_composition":
+            # Force (or release) gamescope composition so a docked Sunshine stream
+            # isn't squeezed/stretched. Docky runs as `deck`, so we can set the
+            # GAMESCOPE_COMPOSITE_FORCE atom on :0 directly (no su/root needed).
+            on = bool(task.get("enabled"))
+            val = "1" if on else "0"
+            env = dict(os.environ)
+            env.setdefault("DISPLAY", ":0")
+            subprocess.run(
+                ["xprop", "-root", "-f", "GAMESCOPE_COMPOSITE_FORCE", "32c",
+                 "-set", "GAMESCOPE_COMPOSITE_FORCE", val],
+                env=env, check=True,
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            )
+            r.update(ok=True, message="composition forced %s" % ("on" if on else "off"))
+
         else:
             r.update(message="unknown task type: %r" % t)
     except KeyError as e:
@@ -270,6 +286,26 @@ def activate_mode(mode_id, allow_running_emu=True, cfg=None, mark_active=True):
             "ok": ok_all, "actions": action_results}
 
 
+# ---------------- plugin detection ----------------
+
+def _plugins_dir():
+    cand = os.path.join(os.environ["DECKY_HOME"], "plugins") if os.environ.get("DECKY_HOME") else None
+    for d in (cand, os.path.expanduser("~/homebrew/plugins")):
+        if d and os.path.isdir(d):
+            return d
+    return os.path.expanduser("~/homebrew/plugins")
+
+
+def installed_plugins():
+    """Folder names of installed Decky plugins, so task types can gate on a
+    dependency (e.g. a Sunshine task requiring the decky-sunshine plugin)."""
+    try:
+        d = _plugins_dir()
+        return sorted(n for n in os.listdir(d) if os.path.isdir(os.path.join(d, n)))
+    except OSError:
+        return []
+
+
 # ---------------- dock / status ----------------
 
 def is_docked(cfg=None):
@@ -314,6 +350,7 @@ def get_state():
                     for k, v in cfg.get("actions", {}).items()],
         "pcsx2_profiles": padswap.list_profiles(),
         "pcsx2_running": padswap.pcsx2_running(),
+        "installed_plugins": installed_plugins(),
         "config_path": CONFIG_PATH,
     }
 

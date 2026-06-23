@@ -50,6 +50,7 @@ export interface DockyState {
   actions?: StateAction[];
   settings?: Settings;
   pcsx2_profiles?: string[];
+  installed_plugins?: string[];
   error?: string;
 }
 

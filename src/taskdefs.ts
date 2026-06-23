@@ -29,6 +29,9 @@ export interface TaskTypeDef {
   builtin?: boolean;
   // Type-level settings (shown behind the gear). Omit if the type has none.
   settings?: TaskSettingField[];
+  // Requires another Decky plugin (by folder name) to be installed. If absent
+  // from the running install, this task type is disabled in the picker.
+  requiresPlugin?: string;
 }
 
 // Built-in task types. The PCSX2 controller-profile task is the marquee one;
@@ -53,6 +56,16 @@ export const TASK_DEFS: TaskTypeDef[] = [
       },
     ],
     summary: (t) => "PCSX2 profile: " + (t.profile || "?"),
+  },
+  {
+    type: "sunshine_composition",
+    label: "Sunshine: force composition (fix docked stretch)",
+    builtin: true,
+    requiresPlugin: "decky-sunshine",
+    fields: [
+      { key: "enabled", kind: "bool", label: "Force composition on" },
+    ],
+    summary: (t) => "Sunshine composition: " + (t.enabled ? "on" : "off"),
   },
   {
     type: "run",

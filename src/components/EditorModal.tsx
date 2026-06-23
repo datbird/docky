@@ -72,7 +72,12 @@ const AddTask: VFC<{
   onAdd: (t: Task) => void;
   taskSettings: Record<string, Record<string, string>>;
   onChangeTaskSetting: (type: string, key: string, value: string) => void;
-}> = ({ profiles, busy, onAdd, taskSettings, onChangeTaskSetting }) => {
+  installedPlugins: string[];
+}> = ({ profiles, busy, onAdd, taskSettings, onChangeTaskSetting, installedPlugins }) => {
+  const pluginOk = (d: { requiresPlugin?: string }) =>
+    !d.requiresPlugin || installedPlugins.indexOf(d.requiresPlugin) !== -1;
+  const optLabel = (d: { label: string; requiresPlugin?: string }) =>
+    pluginOk(d) ? d.label : d.label + ` (needs ${d.requiresPlugin})`;
   const hasBuiltins = BUILTIN_DEFS.length > 0;
   const [top, setTop] = useState<string>(
     hasBuiltins ? DOCKY_BUILTIN : GENERIC_DEFS[0] ? GENERIC_DEFS[0].type : ""
@@ -84,7 +89,7 @@ const AddTask: VFC<{
   const def = taskDef(type)!;
 
   const topOptions = (hasBuiltins ? [{ data: DOCKY_BUILTIN, label: "Docky built-in task" }] : []).concat(
-    GENERIC_DEFS.map((d) => ({ data: d.type, label: d.label }))
+    GENERIC_DEFS.map((d) => ({ data: d.type, label: optLabel(d) }))
   );
 
   const setField = (k: string, val: any) => setVals({ ...vals, [k]: val });
@@ -104,7 +109,7 @@ const AddTask: VFC<{
     setVals({});
   };
 
-  const valid = type === "pcsx2_profile" ? profiles.length > 0 : true;
+  const valid = pluginOk(def) && (type === "pcsx2_profile" ? profiles.length > 0 : true);
 
   const fieldEls = def.fields.map((f) => {
     if (f.kind === "bool") {
@@ -178,7 +183,7 @@ const AddTask: VFC<{
             <div style={{ flex: 1 }}>
               <DropdownItem
                 label="Built-in task"
-                rgOptions={BUILTIN_DEFS.map((d) => ({ data: d.type, label: d.label }))}
+                rgOptions={BUILTIN_DEFS.map((d) => ({ data: d.type, label: optLabel(d) }))}
                 selectedOption={builtinType}
                 onChange={(o) => {
                   setBuiltinType(o.data);
@@ -205,7 +210,13 @@ const AddTask: VFC<{
           {gear}
         </Focusable>
       )}
-      {fieldEls}
+      {!pluginOk(def) ? (
+        <div style={{ color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" }}>
+          Requires the “{def.requiresPlugin}” plugin, which isn’t installed.
+        </div>
+      ) : (
+        fieldEls
+      )}
       <DialogButton disabled={busy || !valid} onClick={add}>
         + Add task
       </DialogButton>
@@ -257,8 +268,9 @@ export const EditorModal: VFC<{
   closeModal?: () => void;
   initialConfig: Config;
   profiles: string[];
+  installedPlugins: string[];
   onSaved: (state: any) => void;
-}> = ({ closeModal, initialConfig, profiles, onSaved }) => {
+}> = ({ closeModal, initialConfig, profiles, installedPlugins, onSaved }) => {
   const [cfg, setCfg] = useState<Config>(clone(initialConfig));
   const [dirty, setDirty] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
@@ -397,6 +409,7 @@ export const EditorModal: VFC<{
                   n.taskSettings[type][key] = value;
                 })
               }
+              installedPlugins={installedPlugins}
             />
             <div style={{ marginTop: "10px" }}>
               <DialogButton
