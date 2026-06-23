@@ -1,0 +1,15 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Python
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+*.swp
+.vscode/settings.json
+
+# NOTE: dist/ IS tracked on purpose — install.sh copies dist/index.js
+# straight from the repo, so the built bundle is committed.
