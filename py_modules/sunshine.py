@@ -334,3 +334,42 @@ def pair(pin, name, auth):
     if code in (401, 403):
         return False, "Sunshine rejected the login — set it again"
     return False, "pairing error (HTTP %s)" % code
+
+
+def list_clients(auth):
+    """Return paired clients [{name, uuid, ...}], or None on error."""
+    if not auth:
+        return None
+    code, resp = _api("/api/clients/list", auth=auth)
+    if code == 200:
+        try:
+            return json.loads(resp).get("named_certs", [])
+        except ValueError:
+            return []
+    return None
+
+
+def unpair(uuid, auth):
+    """Unpair a single client by uuid. Returns (ok, message)."""
+    if not auth:
+        return False, "no Sunshine login set yet"
+    if not uuid:
+        return False, "no device selected"
+    code, _resp = _api("/api/clients/unpair", method="POST", auth=auth, body={"uuid": uuid})
+    if code == 200:
+        return True, "unpaired"
+    if code in (401, 403):
+        return False, "Sunshine rejected the login — set it again"
+    return False, "unpair failed (HTTP %s)" % code
+
+
+def unpair_all(auth):
+    """Unpair every client. Returns (ok, message)."""
+    if not auth:
+        return False, "no Sunshine login set yet"
+    code, _resp = _api("/api/clients/unpair-all", method="POST", auth=auth, body={})
+    if code == 200:
+        return True, "all devices unpaired"
+    if code in (401, 403):
+        return False, "Sunshine rejected the login — set it again"
+    return False, "unpair failed (HTTP %s)" % code

@@ -404,6 +404,25 @@ def sunshine_pair(pin, name=""):
     return {"ok": ok, "message": msg}
 
 
+def sunshine_clients():
+    """List currently paired Moonlight clients."""
+    st = load_state()
+    clients = sunshine.list_clients(st.get("sunshineAuth"))
+    return {"ok": clients is not None, "clients": clients or []}
+
+
+def sunshine_unpair(uuid):
+    st = load_state()
+    ok, msg = sunshine.unpair(uuid, st.get("sunshineAuth"))
+    return {"ok": ok, "message": msg}
+
+
+def sunshine_unpair_all():
+    st = load_state()
+    ok, msg = sunshine.unpair_all(st.get("sunshineAuth"))
+    return {"ok": ok, "message": msg}
+
+
 def set_auto_dock(enabled):
     cfg = load_config()
     cfg["settings"]["autoDockDetection"] = bool(enabled)

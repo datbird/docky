@@ -1,4 +1,4 @@
-import { VFC, useState } from "react";
+import { VFC, useState, useEffect } from "react";
 import { ModalRoot, DialogButton } from "decky-frontend-lib";
 import { call } from "../util";
 import { TextRow } from "./inputs";
@@ -18,6 +18,49 @@ export const PairModal: VFC<{
   const [name, setName] = useState<string>("");
   const [busy, setBusy] = useState<boolean>(false);
   const [msg, setMsg] = useState<string>("");
+  const [clients, setClients] = useState<any[]>([]);
+
+  function refreshClients() {
+    call<any>("sunshine_clients")
+      .then((r) => {
+        if (r && r.clients) setClients(r.clients);
+      })
+      .catch(() => {});
+  }
+
+  useEffect(() => {
+    if (credsStored) refreshClients();
+  }, []);
+
+  function unpairOne(uuid: string) {
+    setBusy(true);
+    setMsg("Unpairing…");
+    call<any>("sunshine_unpair", { uuid })
+      .then((r) => {
+        setBusy(false);
+        setMsg((r && r.message) || "done");
+        refreshClients();
+      })
+      .catch((e) => {
+        setBusy(false);
+        setMsg("Error: " + e);
+      });
+  }
+
+  function unpairAll() {
+    setBusy(true);
+    setMsg("Unpairing all…");
+    call<any>("sunshine_unpair_all")
+      .then((r) => {
+        setBusy(false);
+        setMsg((r && r.message) || "done");
+        refreshClients();
+      })
+      .catch((e) => {
+        setBusy(false);
+        setMsg("Error: " + e);
+      });
+  }
 
   function saveLogin() {
     setBusy(true);
@@ -44,7 +87,10 @@ export const PairModal: VFC<{
       .then((r) => {
         setBusy(false);
         setMsg((r && r.message) || (r && r.ok ? "Paired" : "Failed"));
-        if (r && r.ok) setPin("");
+        if (r && r.ok) {
+          setPin("");
+          refreshClients();
+        }
       })
       .catch((e) => {
         setBusy(false);
@@ -83,6 +129,30 @@ export const PairModal: VFC<{
               Change login
             </DialogButton>
           </div>
+
+          <div style={{ fontWeight: 600, marginTop: "12px", marginBottom: "2px" }}>Paired devices</div>
+          {clients.length === 0 ? (
+            <div style={{ opacity: 0.6, fontSize: "0.85em" }}>None</div>
+          ) : (
+            clients.map((c) => (
+              <div
+                key={c.uuid}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginTop: "4px" }}
+              >
+                <span>{c.name || c.uuid}</span>
+                <DialogButton style={{ width: "7em" }} disabled={busy} onClick={() => unpairOne(c.uuid)}>
+                  Unpair
+                </DialogButton>
+              </div>
+            ))
+          )}
+          {clients.length > 0 ? (
+            <div style={{ marginTop: "6px" }}>
+              <DialogButton disabled={busy} onClick={unpairAll}>
+                Unpair all
+              </DialogButton>
+            </div>
+          ) : null}
         </div>
       )}
 

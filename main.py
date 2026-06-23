@@ -99,6 +99,24 @@ class Plugin:
             decky.logger.exception("sunshine_pair failed")
             return {"ok": False, "message": str(e)}
 
+    async def sunshine_clients(self):
+        try:
+            return docky.sunshine_clients()
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "clients": [], "message": str(e)}
+
+    async def sunshine_unpair(self, uuid):
+        try:
+            return docky.sunshine_unpair(uuid)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "message": str(e)}
+
+    async def sunshine_unpair_all(self):
+        try:
+            return docky.sunshine_unpair_all()
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "message": str(e)}
+
     async def get_config(self):
         try:
             return {"config": docky.load_config(), "path": docky.CONFIG_PATH}

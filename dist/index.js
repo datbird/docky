@@ -574,6 +574,47 @@
         const [name, setName] = react.useState("");
         const [busy, setBusy] = react.useState(false);
         const [msg, setMsg] = react.useState("");
+        const [clients, setClients] = react.useState([]);
+        function refreshClients() {
+            call("sunshine_clients")
+                .then((r) => {
+                if (r && r.clients)
+                    setClients(r.clients);
+            })
+                .catch(() => { });
+        }
+        react.useEffect(() => {
+            if (credsStored)
+                refreshClients();
+        }, []);
+        function unpairOne(uuid) {
+            setBusy(true);
+            setMsg("Unpairing…");
+            call("sunshine_unpair", { uuid })
+                .then((r) => {
+                setBusy(false);
+                setMsg((r && r.message) || "done");
+                refreshClients();
+            })
+                .catch((e) => {
+                setBusy(false);
+                setMsg("Error: " + e);
+            });
+        }
+        function unpairAll() {
+            setBusy(true);
+            setMsg("Unpairing all…");
+            call("sunshine_unpair_all")
+                .then((r) => {
+                setBusy(false);
+                setMsg((r && r.message) || "done");
+                refreshClients();
+            })
+                .catch((e) => {
+                setBusy(false);
+                setMsg("Error: " + e);
+            });
+        }
         function saveLogin() {
             setBusy(true);
             setMsg("Setting login…");
@@ -599,8 +640,10 @@
                 .then((r) => {
                 setBusy(false);
                 setMsg((r && r.message) || (r && r.ok ? "Paired" : "Failed"));
-                if (r && r.ok)
+                if (r && r.ok) {
                     setPin("");
+                    refreshClients();
+                }
             })
                 .catch((e) => {
                 setBusy(false);
@@ -619,7 +662,13 @@
                 window.SP_REACT.createElement(TextRow, { label: "Device name (optional)", value: name, onChange: setName }),
                 window.SP_REACT.createElement("div", { style: { display: "flex", gap: "8px" } },
                     window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !pin.trim(), onClick: doPair }, "Pair"),
-                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => setMode("login") }, "Change login")))),
+                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => setMode("login") }, "Change login")),
+                window.SP_REACT.createElement("div", { style: { fontWeight: 600, marginTop: "12px", marginBottom: "2px" } }, "Paired devices"),
+                clients.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6, fontSize: "0.85em" } }, "None")) : (clients.map((c) => (window.SP_REACT.createElement("div", { key: c.uuid, style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginTop: "4px" } },
+                    window.SP_REACT.createElement("span", null, c.name || c.uuid),
+                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { style: { width: "7em" }, disabled: busy, onClick: () => unpairOne(c.uuid) }, "Unpair"))))),
+                clients.length > 0 ? (window.SP_REACT.createElement("div", { style: { marginTop: "6px" } },
+                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: unpairAll }, "Unpair all"))) : null)),
             msg ? window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.85, marginTop: "8px" } }, msg) : null,
             window.SP_REACT.createElement("div", { style: { marginTop: "10px" } },
                 window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => closeModal && closeModal() }, "Close"))));
