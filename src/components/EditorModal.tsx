@@ -6,9 +6,10 @@ import {
   ToggleField,
   DropdownItem,
   Focusable,
+  showModal,
 } from "decky-frontend-lib";
 import { Config, Task, call, clone, errText, slugify, toast, uniqueId } from "../util";
-import { BUILTIN_DEFS, GENERIC_DEFS, taskDef, summarizeTask } from "../taskdefs";
+import { BUILTIN_DEFS, GENERIC_DEFS, TaskTypeDef, taskDef, summarizeTask } from "../taskdefs";
 import { Card, TextRow } from "./inputs";
 
 type TabId = "actions" | "modes" | "autodock";
@@ -16,14 +17,62 @@ type TabId = "actions" | "modes" | "autodock";
 // Sentinel for the top-level dropdown entry that groups the curated Docky tasks.
 const DOCKY_BUILTIN = "__docky_builtin__";
 
+function GearIcon() {
+  return (
+    <svg width="1.2em" height="1.2em" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M19.14 12.94a7.49 7.49 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.24-1.12.55-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.49 7.49 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.34.68.22l2.39-.96c.5.39 1.04.7 1.62.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.58-.24 1.12-.56 1.62-.94l2.39.96c.26.12.54.02.68-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z" />
+    </svg>
+  );
+}
+
+// Popup window for a task type's global settings (e.g. the PCSX2 profiles path).
+// Keeps its own field state for display; each edit also calls onChange so the
+// parent editor's draft (config.taskSettings[type]) updates and marks dirty.
+const TaskSettingsModal: VFC<{
+  closeModal?: () => void;
+  def: TaskTypeDef;
+  initial: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+}> = ({ closeModal, def, initial, onChange }) => {
+  const [vals, setVals] = useState<Record<string, string>>({ ...initial });
+  return (
+    <ModalRoot onCancel={closeModal} onEscKeypress={closeModal}>
+      <div style={{ fontSize: "1.3em", fontWeight: 700, marginBottom: "8px" }}>{def.label} — settings</div>
+      {(def.settings || []).map((s) => (
+        <div key={s.key} style={{ marginBottom: "10px" }}>
+          <TextRow
+            label={s.label}
+            value={vals[s.key] ?? ""}
+            onChange={(v) => {
+              setVals({ ...vals, [s.key]: v });
+              onChange(s.key, v);
+            }}
+          />
+          {s.description ? (
+            <div style={{ fontSize: "0.75em", opacity: 0.6, marginTop: "2px" }}>{s.description}</div>
+          ) : null}
+          {s.default ? (
+            <div style={{ fontSize: "0.7em", opacity: 0.5, marginTop: "2px" }}>
+              Default: {s.default}
+            </div>
+          ) : null}
+        </div>
+      ))}
+      <DialogButton onClick={() => closeModal?.()}>Done</DialogButton>
+    </ModalRoot>
+  );
+};
+
 // Add-task form for one action: pick a type, fill its fields, append.
 // Curated Docky tasks (e.g. PCSX2 profile) live behind a "Docky built-in task"
 // entry with its own sub-dropdown; generic ops are listed directly.
-const AddTask: VFC<{ profiles: string[]; busy: boolean; onAdd: (t: Task) => void }> = ({
-  profiles,
-  busy,
-  onAdd,
-}) => {
+const AddTask: VFC<{
+  profiles: string[];
+  busy: boolean;
+  onAdd: (t: Task) => void;
+  taskSettings: Record<string, Record<string, string>>;
+  onChangeTaskSetting: (type: string, key: string, value: string) => void;
+}> = ({ profiles, busy, onAdd, taskSettings, onChangeTaskSetting }) => {
   const hasBuiltins = BUILTIN_DEFS.length > 0;
   const [top, setTop] = useState<string>(
     hasBuiltins ? DOCKY_BUILTIN : GENERIC_DEFS[0] ? GENERIC_DEFS[0].type : ""
@@ -91,29 +140,71 @@ const AddTask: VFC<{ profiles: string[]; busy: boolean; onAdd: (t: Task) => void
     );
   });
 
+  const hasSettings = !!(def.settings && def.settings.length);
+  const openSettings = () =>
+    showModal(
+      <TaskSettingsModal
+        def={def}
+        initial={taskSettings[type] || {}}
+        onChange={(k, v) => onChangeTaskSetting(type, k, v)}
+      />
+    );
+  // Gear next to the task-type dropdown; grayed unless this type has settings.
+  const gear = (
+    <DialogButton
+      disabled={busy || !hasSettings}
+      onClick={openSettings}
+      style={{ minWidth: 0, padding: "6px 10px", display: "flex", alignItems: "center", justifyContent: "center" }}
+    >
+      <GearIcon />
+    </DialogButton>
+  );
+
   return (
     <div style={{ marginTop: "8px", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "8px" }}>
       <div style={{ fontWeight: 600, marginBottom: "2px" }}>Add a task</div>
-      <DropdownItem
-        label="Task type"
-        rgOptions={topOptions}
-        selectedOption={top}
-        onChange={(o) => {
-          setTop(o.data);
-          setVals({});
-        }}
-      />
       {top === DOCKY_BUILTIN && BUILTIN_DEFS.length > 0 ? (
-        <DropdownItem
-          label="Built-in task"
-          rgOptions={BUILTIN_DEFS.map((d) => ({ data: d.type, label: d.label }))}
-          selectedOption={builtinType}
-          onChange={(o) => {
-            setBuiltinType(o.data);
-            setVals({});
-          }}
-        />
-      ) : null}
+        <>
+          <DropdownItem
+            label="Task type"
+            rgOptions={topOptions}
+            selectedOption={top}
+            onChange={(o) => {
+              setTop(o.data);
+              setVals({});
+            }}
+          />
+          <Focusable flow-children="horizontal" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <div style={{ flex: 1 }}>
+              <DropdownItem
+                label="Built-in task"
+                rgOptions={BUILTIN_DEFS.map((d) => ({ data: d.type, label: d.label }))}
+                selectedOption={builtinType}
+                onChange={(o) => {
+                  setBuiltinType(o.data);
+                  setVals({});
+                }}
+              />
+            </div>
+            {gear}
+          </Focusable>
+        </>
+      ) : (
+        <Focusable flow-children="horizontal" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <div style={{ flex: 1 }}>
+            <DropdownItem
+              label="Task type"
+              rgOptions={topOptions}
+              selectedOption={top}
+              onChange={(o) => {
+                setTop(o.data);
+                setVals({});
+              }}
+            />
+          </div>
+          {gear}
+        </Focusable>
+      )}
       {fieldEls}
       <DialogButton disabled={busy || !valid} onClick={add}>
         + Add task
@@ -296,6 +387,14 @@ export const EditorModal: VFC<{
                 mutate((n) => {
                   n.actions[aid].tasks = n.actions[aid].tasks || [];
                   n.actions[aid].tasks.push(task);
+                })
+              }
+              taskSettings={cfg.taskSettings || {}}
+              onChangeTaskSetting={(type, key, value) =>
+                mutate((n) => {
+                  n.taskSettings = n.taskSettings || {};
+                  n.taskSettings[type] = n.taskSettings[type] || {};
+                  n.taskSettings[type][key] = value;
                 })
               }
             />

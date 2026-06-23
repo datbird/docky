@@ -29,6 +29,8 @@ export interface Config {
   actions: Record<string, Action>;
   modes: Record<string, Mode>;
   settings: Settings;
+  // Global per-task-type settings, keyed by task type (e.g. pcsx2_profile).
+  taskSettings?: Record<string, Record<string, string>>;
 }
 
 export interface StateMode {

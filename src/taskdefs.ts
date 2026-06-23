@@ -8,6 +8,16 @@ export interface TaskField {
   label: string;
   def?: boolean;
 }
+// Global, per-task-type settings (NOT per-task) — edited via the gear next to
+// the task-type dropdown, stored in config.taskSettings[type].
+export interface TaskSettingField {
+  key: string;
+  label: string;
+  description?: string;
+  default?: string;
+  placeholder?: string;
+}
+
 export interface TaskTypeDef {
   type: string;
   label: string;
@@ -17,6 +27,8 @@ export interface TaskTypeDef {
   // behind a "Docky built-in task" picker; generic file/script ops are listed
   // directly. Add more built-ins by setting builtin: true.
   builtin?: boolean;
+  // Type-level settings (shown behind the gear). Omit if the type has none.
+  settings?: TaskSettingField[];
 }
 
 // Built-in task types. The PCSX2 controller-profile task is the marquee one;
@@ -27,8 +39,18 @@ export const TASK_DEFS: TaskTypeDef[] = [
     label: "PCSX2 controller profile",
     builtin: true,
     fields: [
-      { key: "profile", kind: "profile", label: "Profile" },
+      { key: "profile", kind: "profile", label: "PCSX2 Controller Profile" },
       { key: "force", kind: "bool", label: "Force (apply even while PCSX2 runs)" },
+    ],
+    settings: [
+      {
+        key: "profiles_dir",
+        label: "Controller profiles folder",
+        description:
+          "Folder holding the PCSX2 input-profile .ini files. Change this if PCSX2 isn't the RetroDECK Flatpak (EmuDeck, standalone, etc.). The main PCSX2.ini is found alongside it.",
+        default: "~/.var/app/net.retrodeck.retrodeck/config/PCSX2/inputprofiles",
+        placeholder: "~/.var/app/net.retrodeck.retrodeck/config/PCSX2/inputprofiles",
+      },
     ],
     summary: (t) => "PCSX2 profile: " + (t.profile || "?"),
   },

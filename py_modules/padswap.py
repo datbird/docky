@@ -14,12 +14,27 @@ import re
 import glob
 import time
 
-# RetroDECK PCSX2 config root (Flatpak)
+# RetroDECK PCSX2 config root (Flatpak) — the default install location.
 PCSX2_DIR = os.path.expanduser(
     "~/.var/app/net.retrodeck.retrodeck/config/PCSX2"
 )
 MAIN_INI = os.path.join(PCSX2_DIR, "inis", "PCSX2.ini")
 PROFILES_DIR = os.path.join(PCSX2_DIR, "inputprofiles")
+
+
+def configure(profiles_dir=None):
+    """Point padswap at a specific PCSX2 install (for non-RetroDECK setups).
+
+    `profiles_dir` is the folder holding the input-profile .ini files. The main
+    PCSX2.ini is found as a sibling (../inis/PCSX2.ini), which matches PCSX2's
+    standard layout across install types. Passing None/empty keeps the default.
+    """
+    global PCSX2_DIR, MAIN_INI, PROFILES_DIR
+    if not profiles_dir:
+        return
+    PROFILES_DIR = os.path.expanduser(profiles_dir)
+    PCSX2_DIR = os.path.dirname(PROFILES_DIR)
+    MAIN_INI = os.path.join(PCSX2_DIR, "inis", "PCSX2.ini")
 
 _SECTION_RE = re.compile(r"^\[([^\]]+)\]\s*$")
 

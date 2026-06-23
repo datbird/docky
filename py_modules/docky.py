@@ -54,6 +54,9 @@ def default_config():
         },
         "actions": {},
         "modes": {},
+        # Per-task-type settings (global, not per-task), keyed by task type.
+        # e.g. {"pcsx2_profile": {"profiles_dir": "..."}}
+        "taskSettings": {},
     }
 
 
@@ -76,6 +79,10 @@ def load_config():
         cfg.setdefault(k, v)
     for k, v in base["settings"].items():
         cfg["settings"].setdefault(k, v)
+    # Sync padswap to the configured PCSX2 profiles folder (if overridden), so
+    # every code path that loads config uses the right install location.
+    ts = (cfg.get("taskSettings") or {}).get("pcsx2_profile") or {}
+    padswap.configure(ts.get("profiles_dir") or None)
     return cfg
 
 
