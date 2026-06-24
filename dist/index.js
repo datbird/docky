@@ -914,7 +914,6 @@
         }
         const sett = state.settings || {};
         const modes = state.modes || [];
-        const actions = state.actions || [];
         const favorites = state.favorites || [];
         const activeName = (() => {
             const found = modes.filter((x) => x.id === state.activeMode)[0];
@@ -944,21 +943,17 @@
                                 : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null))))),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Start Sunshine at boot", description: "Launch Sunshine when Docky loads after a reboot", checked: sett.autostartSunshine !== false, disabled: busy, onChange: toggleAutostartSunshine }))),
-            favorites.length ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Favorites" }, favorites.map((f) => (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "f_" + f.kind + "_" + f.id },
-                window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy || f.missing, description: f.kind === "mode" ? "Mode" : "Action", onClick: () => f.kind === "mode"
-                        ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
-                        : doCall("run_action", { action_id: f.id }, "Running " + f.name) }, (f.kind === "mode" ? "★ " : "★ Run: ") + f.name + (f.missing ? " (missing)" : ""))))))) : null,
-            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Modes" }, modes.length ? (modes.map((mode) => {
-                const isActive = mode.id === state.activeMode;
-                const isSugg = mode.id === state.suggestedMode && !isActive;
-                const desc = isActive ? "Active" : isSugg ? "Suggested for this environment" : undefined;
-                return (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "m_" + mode.id },
-                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, description: desc, onClick: () => doCall("activate_mode", { mode_id: mode.id }, "Switching to " + mode.name) }, (isActive ? "✓ " : "") + mode.name)));
+            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Favorites" }, favorites.length ? (favorites.map((f) => {
+                const isActive = f.kind === "mode" && f.id === state.activeMode;
+                return (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "f_" + f.kind + "_" + f.id },
+                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy || f.missing, description: f.kind === "mode" ? (isActive ? "Mode · active" : "Mode") : "Action", onClick: () => f.kind === "mode"
+                            ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
+                            : doCall("run_action", { action_id: f.id }, "Running " + f.name) }, (isActive ? "✓ " : "★ ") +
+                        (f.kind === "mode" ? "" : "Run: ") +
+                        f.name +
+                        (f.missing ? " (missing)" : ""))));
             })) : (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                window.SP_REACT.createElement("div", { style: { opacity: 0.7 } }, "No modes defined")))),
-            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Run Action" }, actions.length ? (actions.map((a) => (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "a_" + a.id },
-                window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, description: a.taskCount + " task" + (a.taskCount === 1 ? "" : "s"), onClick: () => doCall("run_action", { action_id: a.id }, "Running " + a.name) }, "Run: " + a.name))))) : (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                window.SP_REACT.createElement("div", { style: { opacity: 0.7 } }, "No actions defined")))),
+                window.SP_REACT.createElement("div", { style: { opacity: 0.7, padding: "0 4px" } }, "No favorites yet. Open Settings (gear) \u2192 Favorites to pin actions and modes here.")))),
             msg ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement("div", { style: { fontSize: "0.75em", opacity: 0.8, padding: "0 16px" } }, msg)))) : null));

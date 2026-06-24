@@ -233,7 +233,6 @@ const Content: VFC = () => {
 
   const sett = state.settings || {};
   const modes = state.modes || [];
-  const actions = state.actions || [];
   const favorites = state.favorites || [];
   const activeName = (() => {
     const found = modes.filter((x) => x.id === state.activeMode)[0];
@@ -331,70 +330,36 @@ const Content: VFC = () => {
         </PanelSectionRow>
       </PanelSection>
 
-      {favorites.length ? (
-        <PanelSection title="Favorites">
-          {favorites.map((f) => (
-            <PanelSectionRow key={"f_" + f.kind + "_" + f.id}>
-              <ButtonItem
-                layout="below"
-                disabled={busy || f.missing}
-                description={f.kind === "mode" ? "Mode" : "Action"}
-                onClick={() =>
-                  f.kind === "mode"
-                    ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
-                    : doCall("run_action", { action_id: f.id }, "Running " + f.name)
-                }
-              >
-                {(f.kind === "mode" ? "★ " : "★ Run: ") + f.name + (f.missing ? " (missing)" : "")}
-              </ButtonItem>
-            </PanelSectionRow>
-          ))}
-        </PanelSection>
-      ) : null}
-
-      <PanelSection title="Modes">
-        {modes.length ? (
-          modes.map((mode) => {
-            const isActive = mode.id === state.activeMode;
-            const isSugg = mode.id === state.suggestedMode && !isActive;
-            const desc = isActive ? "Active" : isSugg ? "Suggested for this environment" : undefined;
+      <PanelSection title="Favorites">
+        {favorites.length ? (
+          favorites.map((f) => {
+            const isActive = f.kind === "mode" && f.id === state.activeMode;
             return (
-              <PanelSectionRow key={"m_" + mode.id}>
+              <PanelSectionRow key={"f_" + f.kind + "_" + f.id}>
                 <ButtonItem
                   layout="below"
-                  disabled={busy}
-                  description={desc}
-                  onClick={() => doCall("activate_mode", { mode_id: mode.id }, "Switching to " + mode.name)}
+                  disabled={busy || f.missing}
+                  description={f.kind === "mode" ? (isActive ? "Mode · active" : "Mode") : "Action"}
+                  onClick={() =>
+                    f.kind === "mode"
+                      ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
+                      : doCall("run_action", { action_id: f.id }, "Running " + f.name)
+                  }
                 >
-                  {(isActive ? "✓ " : "") + mode.name}
+                  {(isActive ? "✓ " : "★ ") +
+                    (f.kind === "mode" ? "" : "Run: ") +
+                    f.name +
+                    (f.missing ? " (missing)" : "")}
                 </ButtonItem>
               </PanelSectionRow>
             );
           })
         ) : (
           <PanelSectionRow>
-            <div style={{ opacity: 0.7 }}>No modes defined</div>
-          </PanelSectionRow>
-        )}
-      </PanelSection>
-
-      <PanelSection title="Run Action">
-        {actions.length ? (
-          actions.map((a) => (
-            <PanelSectionRow key={"a_" + a.id}>
-              <ButtonItem
-                layout="below"
-                disabled={busy}
-                description={a.taskCount + " task" + (a.taskCount === 1 ? "" : "s")}
-                onClick={() => doCall("run_action", { action_id: a.id }, "Running " + a.name)}
-              >
-                {"Run: " + a.name}
-              </ButtonItem>
-            </PanelSectionRow>
-          ))
-        ) : (
-          <PanelSectionRow>
-            <div style={{ opacity: 0.7 }}>No actions defined</div>
+            <div style={{ opacity: 0.7, padding: "0 4px" }}>
+              No favorites yet. Open Settings (gear) → Favorites to pin actions
+              and modes here.
+            </div>
           </PanelSectionRow>
         )}
       </PanelSection>
