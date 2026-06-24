@@ -26,12 +26,18 @@ export interface Settings {
   requireUsbHub?: boolean;
   autostartSunshine?: boolean;
 }
+export interface Favorite {
+  kind: "action" | "mode";
+  id: string;
+}
 export interface Config {
   actions: Record<string, Action>;
   modes: Record<string, Mode>;
   settings: Settings;
   // Global per-task-type settings, keyed by task type (e.g. pcsx2_profile).
   taskSettings?: Record<string, Record<string, string>>;
+  // Ordered list of pinned actions/modes shown in the panel's Favorites section.
+  favorites?: Favorite[];
 }
 
 export interface StateMode {
@@ -43,12 +49,19 @@ export interface StateAction {
   name: string;
   taskCount: number;
 }
+export interface StateFavorite {
+  kind: "action" | "mode";
+  id: string;
+  name: string;
+  missing?: boolean;
+}
 export interface DockyState {
   docked?: boolean;
   activeMode?: string;
   suggestedMode?: string;
   modes?: StateMode[];
   actions?: StateAction[];
+  favorites?: StateFavorite[];
   settings?: Settings;
   pcsx2_profiles?: string[];
   installed_plugins?: string[];

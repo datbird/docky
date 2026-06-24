@@ -234,6 +234,7 @@ const Content: VFC = () => {
   const sett = state.settings || {};
   const modes = state.modes || [];
   const actions = state.actions || [];
+  const favorites = state.favorites || [];
   const activeName = (() => {
     const found = modes.filter((x) => x.id === state.activeMode)[0];
     return found ? found.name : state.activeMode || "none";
@@ -329,6 +330,27 @@ const Content: VFC = () => {
           />
         </PanelSectionRow>
       </PanelSection>
+
+      {favorites.length ? (
+        <PanelSection title="Favorites">
+          {favorites.map((f) => (
+            <PanelSectionRow key={"f_" + f.kind + "_" + f.id}>
+              <ButtonItem
+                layout="below"
+                disabled={busy || f.missing}
+                description={f.kind === "mode" ? "Mode" : "Action"}
+                onClick={() =>
+                  f.kind === "mode"
+                    ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
+                    : doCall("run_action", { action_id: f.id }, "Running " + f.name)
+                }
+              >
+                {(f.kind === "mode" ? "★ " : "★ Run: ") + f.name + (f.missing ? " (missing)" : "")}
+              </ButtonItem>
+            </PanelSectionRow>
+          ))}
+        </PanelSection>
+      ) : null}
 
       <PanelSection title="Modes">
         {modes.length ? (

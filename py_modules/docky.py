@@ -61,6 +61,9 @@ def default_config():
         # Per-task-type settings (global, not per-task), keyed by task type.
         # e.g. {"pcsx2_profile": {"profiles_dir": "..."}}
         "taskSettings": {},
+        # Ordered list of pinned actions/modes shown in the panel's Favorites
+        # section. Each entry: {"kind": "action"|"mode", "id": "<id>"}.
+        "favorites": [],
     }
 
 
@@ -367,6 +370,25 @@ def suggested_mode(cfg=None):
     return s["dockedMode"] if is_docked(cfg) else s["undockedMode"]
 
 
+def _resolved_favorites(cfg):
+    """Resolve config favorites into panel-ready entries with names, flagging
+    any whose referenced action/mode no longer exists."""
+    actions = cfg.get("actions", {})
+    modes = cfg.get("modes", {})
+    out = []
+    for f in cfg.get("favorites") or []:
+        if not isinstance(f, dict):
+            continue
+        kind, fid = f.get("kind"), f.get("id")
+        store = actions if kind == "action" else modes if kind == "mode" else None
+        if store is None or not fid:
+            continue
+        item = store.get(fid)
+        name = item.get("name", fid) if item else fid
+        out.append({"kind": kind, "id": fid, "name": name, "missing": item is None})
+    return out
+
+
 def get_state():
     cfg = load_config()
     st = load_state()
@@ -381,6 +403,7 @@ def get_state():
         "actions": [{"id": k, "name": v.get("name", k),
                      "taskCount": len(v.get("tasks", []))}
                     for k, v in cfg.get("actions", {}).items()],
+        "favorites": _resolved_favorites(cfg),
         "pcsx2_profiles": padswap.list_profiles(),
         "pcsx2_running": padswap.pcsx2_running(),
         "installed_plugins": installed_plugins(),

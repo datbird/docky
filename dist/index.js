@@ -369,6 +369,18 @@
         } },
         window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, label),
         window.SP_REACT.createElement("span", { style: { opacity: 0.6, fontSize: "0.85em" } }, sub ? sub + " ›" : "›")));
+    // Pick an action/mode (encoded "kind:id") not yet favorited, and add it.
+    const AddFavorite = ({ options, busy, onAdd }) => {
+        const [sel, setSel] = react.useState(options[0] ? options[0].data : "");
+        // Keep the selection valid as the option list shrinks after each add.
+        const cur = options.some((o) => o.data === sel) ? sel : options[0] ? options[0].data : "";
+        return (window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px", alignItems: "center" } },
+            window.SP_REACT.createElement("div", { style: { flex: 1 } },
+                window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Item", rgOptions: options, selectedOption: cur, onChange: (o) => setSel(o.data) })),
+            window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !cur, onClick: () => cur && onAdd(cur) }, "+ Add")));
+    };
+    // Small fixed-width button for the favorite reorder/remove controls.
+    const MiniButton = ({ disabled, width, onClick, children, }) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: disabled, onClick: onClick, style: { minWidth: 0, width, padding: "6px 4px", textAlign: "center" } }, children));
     const EditorModal = ({ closeModal, initialConfig, profiles, installedPlugins, onSaved }) => {
         const [cfg, setCfg] = react.useState(clone(initialConfig));
         const [dirty, setDirty] = react.useState(false);
@@ -382,6 +394,7 @@
             next.actions = next.actions || {};
             next.modes = next.modes || {};
             next.settings = next.settings || {};
+            next.favorites = next.favorites || [];
             fn(next);
             setCfg(next);
             setDirty(true);
@@ -527,6 +540,50 @@
                 window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: newMode, disabled: busy, style: { marginBottom: "10px" } }, "+ New mode"),
                 modeIds.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, "No modes yet. Use \u201C+ New mode\u201D to create one.")) : (modeIds.map((mid) => (window.SP_REACT.createElement(ListRow, { key: mid, label: cfgModes[mid].name || mid, onClick: () => setSelMode(mid) }))))));
         }
+        // ---- FAVORITES TAB ----
+        function renderFavorites() {
+            const favs = cfg.favorites || [];
+            const key = (f) => f.kind + ":" + f.id;
+            const have = {};
+            favs.forEach((f) => (have[key(f)] = true));
+            const options = actionIds
+                .filter((id) => !have["action:" + id])
+                .map((id) => ({ data: "action:" + id, label: "Action — " + (cfgActions[id].name || id) }))
+                .concat(modeIds
+                .filter((id) => !have["mode:" + id])
+                .map((id) => ({ data: "mode:" + id, label: "Mode — " + (cfgModes[id].name || id) })));
+            function swap(i, j) {
+                mutate((n) => {
+                    const a = n.favorites;
+                    const t = a[i];
+                    a[i] = a[j];
+                    a[j] = t;
+                });
+            }
+            return (window.SP_REACT.createElement("div", null,
+                window.SP_REACT.createElement("div", { style: { fontWeight: 700, margin: "2px 0 6px" } }, "Favorites"),
+                window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.6, marginBottom: "8px" } }, "Pinned actions and modes appear in the panel\u2019s Favorites section, in this order. Use \u25B2\u25BC to sort."),
+                favs.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6, marginBottom: "8px" } }, "No favorites yet.")) : (favs.map((f, i) => {
+                    const item = f.kind === "action" ? cfgActions[f.id] : cfgModes[f.id];
+                    const name = item ? item.name || f.id : f.id;
+                    const tag = f.kind === "action" ? "Action" : "Mode";
+                    return (window.SP_REACT.createElement(deckyFrontendLib.Field, { key: key(f) + "_" + i, label: tag + ": " + name + (item ? "" : " (missing)"), bottomSeparator: "none" },
+                        window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "4px" } },
+                            window.SP_REACT.createElement(MiniButton, { width: "3em", disabled: busy || i === 0, onClick: () => swap(i, i - 1) }, "\u25B2"),
+                            window.SP_REACT.createElement(MiniButton, { width: "3em", disabled: busy || i === favs.length - 1, onClick: () => swap(i, i + 1) }, "\u25BC"),
+                            window.SP_REACT.createElement(MiniButton, { width: "5.5em", disabled: busy, onClick: () => mutate((n) => { n.favorites.splice(i, 1); }) }, "Remove"))));
+                })),
+                window.SP_REACT.createElement("div", { style: { fontWeight: 600, margin: "12px 0 2px" } }, "Add a favorite"),
+                options.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, actionIds.length + modeIds.length === 0
+                    ? "Create actions or modes first."
+                    : "Everything is already favorited.")) : (window.SP_REACT.createElement(AddFavorite, { options: options, busy: busy, onAdd: (value) => mutate((n) => {
+                        const idx = value.indexOf(":");
+                        const kind = value.slice(0, idx);
+                        const id = value.slice(idx + 1);
+                        n.favorites = n.favorites || [];
+                        n.favorites.push({ kind, id });
+                    }) }))));
+        }
         // ---- AUTO-DOCK TAB ----
         function renderAutoDock() {
             const strict = cfg.settings.requireExternalDisplay !== false; // default true
@@ -556,10 +613,12 @@
             window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "4px", marginBottom: "10px" } },
                 window.SP_REACT.createElement(TabButton, { active: tab === "actions", label: "Actions", onClick: () => setTab("actions") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "modes", label: "Modes", onClick: () => setTab("modes") }),
-                window.SP_REACT.createElement(TabButton, { active: tab === "autodock", label: "Auto-dock mapping", onClick: () => setTab("autodock") })),
+                window.SP_REACT.createElement(TabButton, { active: tab === "favorites", label: "Favorites", onClick: () => setTab("favorites") }),
+                window.SP_REACT.createElement(TabButton, { active: tab === "autodock", label: "Auto-dock", onClick: () => setTab("autodock") })),
             window.SP_REACT.createElement("div", { style: { maxHeight: "62vh", overflowY: "scroll", paddingRight: "6px" } },
                 tab === "actions" ? renderActions() : null,
                 tab === "modes" ? renderModes() : null,
+                tab === "favorites" ? renderFavorites() : null,
                 tab === "autodock" ? renderAutoDock() : null)));
     };
 
@@ -856,6 +915,7 @@
         const sett = state.settings || {};
         const modes = state.modes || [];
         const actions = state.actions || [];
+        const favorites = state.favorites || [];
         const activeName = (() => {
             const found = modes.filter((x) => x.id === state.activeMode)[0];
             return found ? found.name : state.activeMode || "none";
@@ -884,6 +944,10 @@
                                 : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null))))),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Start Sunshine at boot", description: "Launch Sunshine when Docky loads after a reboot", checked: sett.autostartSunshine !== false, disabled: busy, onChange: toggleAutostartSunshine }))),
+            favorites.length ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Favorites" }, favorites.map((f) => (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "f_" + f.kind + "_" + f.id },
+                window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy || f.missing, description: f.kind === "mode" ? "Mode" : "Action", onClick: () => f.kind === "mode"
+                        ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
+                        : doCall("run_action", { action_id: f.id }, "Running " + f.name) }, (f.kind === "mode" ? "★ " : "★ Run: ") + f.name + (f.missing ? " (missing)" : ""))))))) : null,
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Modes" }, modes.length ? (modes.map((mode) => {
                 const isActive = mode.id === state.activeMode;
                 const isSugg = mode.id === state.suggestedMode && !isActive;
