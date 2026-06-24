@@ -112,10 +112,37 @@ const IconButton: VFC<{
   </DialogButton>
 );
 
+// Clickable section header that expands/collapses the rows below it. Styled to
+// read like a PanelSection title but works with the gamepad (it's a button).
+const SectionHeader: VFC<{ title: string; open: boolean; onToggle: () => void }> = ({
+  title,
+  open,
+  onToggle,
+}) => (
+  <DialogButton
+    onClick={onToggle}
+    style={{
+      width: "100%",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "4px 8px",
+      minHeight: 0,
+    }}
+  >
+    <span style={{ fontWeight: 700, fontSize: "0.85em", letterSpacing: "0.05em", textTransform: "uppercase", opacity: 0.85 }}>
+      {title}
+    </span>
+    <span style={{ opacity: 0.7 }}>{open ? "▾" : "▸"}</span>
+  </DialogButton>
+);
+
 const Content: VFC = () => {
   const [state, setState] = useState<DockyState | null>(null);
   const [busy, setBusy] = useState<boolean>(false);
   const [msg, setMsg] = useState<string>("");
+  const [favOpen, setFavOpen] = useState<boolean>(true);
+  const [triggersOpen, setTriggersOpen] = useState<boolean>(false);
 
   function refresh(): Promise<void> {
     return call<DockyState>("get_state", {})
@@ -265,31 +292,6 @@ const Content: VFC = () => {
         </PanelSectionRow>
       </PanelSection>
 
-      <PanelSection title="Triggers">
-        {[
-          { key: "autoDockDetection", label: "Dock / undock", desc: "Switch modes when you dock or undock" },
-          { key: "autoAcDetection", label: "AC power", desc: "Switch modes when AC power connects/disconnects" },
-          { key: "autoControllerDetection", label: "External controller", desc: "Switch modes when a controller connects/disconnects" },
-          { key: "autoResume", label: "Resume from sleep", desc: "Re-apply a mode when the Deck wakes" },
-          { key: "autoStartup", label: "Startup", desc: "Apply a mode when Docky loads at boot" },
-        ].map((t) => (
-          <PanelSectionRow key={t.key}>
-            <ToggleField
-              label={t.label}
-              description={t.desc}
-              checked={!!(sett as any)[t.key]}
-              disabled={busy}
-              onChange={(v) => toggleTrigger(t.key, t.label, v)}
-            />
-          </PanelSectionRow>
-        ))}
-        <PanelSectionRow>
-          <div style={{ fontSize: "0.7em", opacity: 0.6, padding: "0 4px" }}>
-            Map each trigger to a mode in Settings (gear) → Triggers.
-          </div>
-        </PanelSectionRow>
-      </PanelSection>
-
       <PanelSection title="Sunshine">
         <PanelSectionRow>
           <Focusable
@@ -337,8 +339,11 @@ const Content: VFC = () => {
         </PanelSectionRow>
       </PanelSection>
 
-      <PanelSection title="Favorites">
-        {favorites.length ? (
+      <PanelSection>
+        <PanelSectionRow>
+          <SectionHeader title="Favorites" open={favOpen} onToggle={() => setFavOpen(!favOpen)} />
+        </PanelSectionRow>
+        {!favOpen ? null : favorites.length ? (
           favorites.map((f) => {
             const isActive = f.kind === "mode" && f.id === state.activeMode;
             const hasStatus = typeof f.status === "boolean";
@@ -381,6 +386,38 @@ const Content: VFC = () => {
             </div>
           </PanelSectionRow>
         )}
+      </PanelSection>
+
+      <PanelSection>
+        <PanelSectionRow>
+          <SectionHeader title="Triggers" open={triggersOpen} onToggle={() => setTriggersOpen(!triggersOpen)} />
+        </PanelSectionRow>
+        {!triggersOpen
+          ? null
+          : [
+              { key: "autoDockDetection", label: "Dock / undock", desc: "Switch modes when you dock or undock" },
+              { key: "autoAcDetection", label: "AC power", desc: "Switch modes when AC power connects/disconnects" },
+              { key: "autoControllerDetection", label: "External controller", desc: "Switch modes when a controller connects/disconnects" },
+              { key: "autoResume", label: "Resume from sleep", desc: "Re-apply a mode when the Deck wakes" },
+              { key: "autoStartup", label: "Startup", desc: "Apply a mode when Docky loads at boot" },
+            ].map((t) => (
+              <PanelSectionRow key={t.key}>
+                <ToggleField
+                  label={t.label}
+                  description={t.desc}
+                  checked={!!(sett as any)[t.key]}
+                  disabled={busy}
+                  onChange={(v) => toggleTrigger(t.key, t.label, v)}
+                />
+              </PanelSectionRow>
+            ))}
+        {triggersOpen ? (
+          <PanelSectionRow>
+            <div style={{ fontSize: "0.7em", opacity: 0.6, padding: "0 4px" }}>
+              Map each trigger to a mode in Settings (gear) → Triggers.
+            </div>
+          </PanelSectionRow>
+        ) : null}
       </PanelSection>
 
       {msg ? (

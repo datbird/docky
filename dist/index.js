@@ -992,10 +992,24 @@
         } },
         children,
         label ? window.SP_REACT.createElement("span", { style: { fontSize: "0.85em" } }, label) : null));
+    // Clickable section header that expands/collapses the rows below it. Styled to
+    // read like a PanelSection title but works with the gamepad (it's a button).
+    const SectionHeader = ({ title, open, onToggle, }) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: onToggle, style: {
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "4px 8px",
+            minHeight: 0,
+        } },
+        window.SP_REACT.createElement("span", { style: { fontWeight: 700, fontSize: "0.85em", letterSpacing: "0.05em", textTransform: "uppercase", opacity: 0.85 } }, title),
+        window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, open ? "▾" : "▸")));
     const Content = () => {
         const [state, setState] = react.useState(null);
         const [busy, setBusy] = react.useState(false);
         const [msg, setMsg] = react.useState("");
+        const [favOpen, setFavOpen] = react.useState(true);
+        const [triggersOpen, setTriggersOpen] = react.useState(false);
         function refresh() {
             return call("get_state", {})
                 .then(setState)
@@ -1107,17 +1121,6 @@
                             window.SP_REACT.createElement(ReloadIcon, null)),
                         window.SP_REACT.createElement(IconButton, { label: "Settings", disabled: busy, onClick: openEditor },
                             window.SP_REACT.createElement(SettingsIcon, null))))),
-            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Triggers" },
-                [
-                    { key: "autoDockDetection", label: "Dock / undock", desc: "Switch modes when you dock or undock" },
-                    { key: "autoAcDetection", label: "AC power", desc: "Switch modes when AC power connects/disconnects" },
-                    { key: "autoControllerDetection", label: "External controller", desc: "Switch modes when a controller connects/disconnects" },
-                    { key: "autoResume", label: "Resume from sleep", desc: "Re-apply a mode when the Deck wakes" },
-                    { key: "autoStartup", label: "Startup", desc: "Apply a mode when Docky loads at boot" },
-                ].map((t) => (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: t.key },
-                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: t.label, description: t.desc, checked: !!sett[t.key], disabled: busy, onChange: (v) => toggleTrigger(t.key, t.label, v) })))),
-                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement("div", { style: { fontSize: "0.7em", opacity: 0.6, padding: "0 4px" } }, "Map each trigger to a mode in Settings (gear) \u2192 Triggers."))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Sunshine" },
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px" } },
@@ -1128,25 +1131,43 @@
                         window.SP_REACT.createElement(IconButton, { disabled: busy || !(state.sunshine && state.sunshine.installed), onClick: () => state.sunshine && state.sunshine.running
                                 ? sunshineControl("sunshine_stop", "Stopping")
                                 : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null)))))),
-            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Favorites" }, favorites.length ? (favorites.map((f) => {
-                const isActive = f.kind === "mode" && f.id === state.activeMode;
-                const hasStatus = typeof f.status === "boolean";
-                return (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "f_" + f.kind + "_" + f.id },
-                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy || f.missing, description: hasStatus
-                            ? "Action · " + (f.status ? "on" : "off")
-                            : f.kind === "mode"
-                                ? isActive ? "Mode · active" : "Mode"
-                                : "Action", onClick: () => f.kind === "mode"
-                            ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
-                            : doCall("run_action", { action_id: f.id }, "Running " + f.name) },
-                        window.SP_REACT.createElement("span", { style: { display: "flex", alignItems: "center", gap: "8px" } },
-                            hasStatus ? window.SP_REACT.createElement(StatusDot, { on: !!f.status }) : null,
-                            window.SP_REACT.createElement("span", null, (hasStatus ? "" : isActive ? "✓ " : "★ ") +
-                                (f.kind === "mode" ? "" : (f.verb ? f.verb : "Run") + ": ") +
-                                f.name +
-                                (f.missing ? " (missing)" : ""))))));
-            })) : (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                window.SP_REACT.createElement("div", { style: { opacity: 0.7, padding: "0 4px" } }, "No favorites yet. Open Settings (gear) \u2192 Favorites to pin actions and modes here.")))),
+            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(SectionHeader, { title: "Favorites", open: favOpen, onToggle: () => setFavOpen(!favOpen) })),
+                !favOpen ? null : favorites.length ? (favorites.map((f) => {
+                    const isActive = f.kind === "mode" && f.id === state.activeMode;
+                    const hasStatus = typeof f.status === "boolean";
+                    return (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "f_" + f.kind + "_" + f.id },
+                        window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy || f.missing, description: hasStatus
+                                ? "Action · " + (f.status ? "on" : "off")
+                                : f.kind === "mode"
+                                    ? isActive ? "Mode · active" : "Mode"
+                                    : "Action", onClick: () => f.kind === "mode"
+                                ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
+                                : doCall("run_action", { action_id: f.id }, "Running " + f.name) },
+                            window.SP_REACT.createElement("span", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+                                hasStatus ? window.SP_REACT.createElement(StatusDot, { on: !!f.status }) : null,
+                                window.SP_REACT.createElement("span", null, (hasStatus ? "" : isActive ? "✓ " : "★ ") +
+                                    (f.kind === "mode" ? "" : (f.verb ? f.verb : "Run") + ": ") +
+                                    f.name +
+                                    (f.missing ? " (missing)" : ""))))));
+                })) : (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement("div", { style: { opacity: 0.7, padding: "0 4px" } }, "No favorites yet. Open Settings (gear) \u2192 Favorites to pin actions and modes here.")))),
+            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(SectionHeader, { title: "Triggers", open: triggersOpen, onToggle: () => setTriggersOpen(!triggersOpen) })),
+                !triggersOpen
+                    ? null
+                    : [
+                        { key: "autoDockDetection", label: "Dock / undock", desc: "Switch modes when you dock or undock" },
+                        { key: "autoAcDetection", label: "AC power", desc: "Switch modes when AC power connects/disconnects" },
+                        { key: "autoControllerDetection", label: "External controller", desc: "Switch modes when a controller connects/disconnects" },
+                        { key: "autoResume", label: "Resume from sleep", desc: "Re-apply a mode when the Deck wakes" },
+                        { key: "autoStartup", label: "Startup", desc: "Apply a mode when Docky loads at boot" },
+                    ].map((t) => (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: t.key },
+                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: t.label, description: t.desc, checked: !!sett[t.key], disabled: busy, onChange: (v) => toggleTrigger(t.key, t.label, v) })))),
+                triggersOpen ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement("div", { style: { fontSize: "0.7em", opacity: 0.6, padding: "0 4px" } }, "Map each trigger to a mode in Settings (gear) \u2192 Triggers."))) : null),
             msg ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement("div", { style: { fontSize: "0.75em", opacity: 0.8, padding: "0 16px" } }, msg)))) : null));
