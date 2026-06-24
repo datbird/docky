@@ -746,6 +746,7 @@
                         { data: "off", label: "Off" },
                     ], selectedOption: engine, onChange: (o) => mutate((n) => { n.settings.sunshineEngine = o.data; }) }),
                 engine === "decky-sunshine" && !deckyInstalled ? (window.SP_REACT.createElement("div", { style: { color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" } }, "decky-sunshine isn\u2019t installed \u2014 install it from the Decky store, or use Auto / Integrated.")) : null,
+                engine === "integrated" && deckyInstalled ? (window.SP_REACT.createElement("div", { style: { color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" } }, "decky-sunshine is also installed. With Integrated, both may try to launch Sunshine and fight over the streaming port. Use Auto (recommended), or disable decky-sunshine\u2019s autostart.")) : null,
                 !info ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, sunBusy ? "Checking…" : "—")) : (window.SP_REACT.createElement(window.SP_REACT.Fragment, null,
                     window.SP_REACT.createElement(InfoRow, { label: "Status", value: info.installed ? "Installed" : "Not installed" }),
                     window.SP_REACT.createElement(InfoRow, { label: "Current version", value: info.installedVersion }),

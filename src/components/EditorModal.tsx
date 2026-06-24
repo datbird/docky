@@ -835,6 +835,13 @@ export const EditorModal: VFC<{
             use Auto / Integrated.
           </div>
         ) : null}
+        {engine === "integrated" && deckyInstalled ? (
+          <div style={{ color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" }}>
+            decky-sunshine is also installed. With Integrated, both may try to
+            launch Sunshine and fight over the streaming port. Use Auto
+            (recommended), or disable decky-sunshine’s autostart.
+          </div>
+        ) : null}
 
         {!info ? (
           <div style={{ opacity: 0.6 }}>{sunBusy ? "Checking…" : "—"}</div>

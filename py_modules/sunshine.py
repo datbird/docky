@@ -97,11 +97,21 @@ def _flatpak(args, capture=True):
                           env=_clean_env())
 
 
+def installed_scope():
+    """'--system', '--user', or None — where the Sunshine flatpak is installed.
+    Checks system first (Docky's + decky-sunshine's default), then a per-user
+    install someone may have done manually."""
+    for scope in ("--system", "--user"):
+        try:
+            if _flatpak(["info", scope, APP_ID]).returncode == 0:
+                return scope
+        except OSError:
+            return None
+    return None
+
+
 def is_installed():
-    try:
-        return _flatpak(["info", "--system", APP_ID]).returncode == 0
-    except OSError:
-        return False
+    return installed_scope() is not None
 
 
 def is_running():
@@ -186,8 +196,9 @@ def version_info():
         )
     except OSError:
         pass
-    inst = is_installed()
-    local = _parse_info(["info", "--system", APP_ID]) if inst else {}
+    scope = installed_scope()
+    inst = scope is not None
+    local = _parse_info(["info", scope, APP_ID]) if inst else {}
     remote = _parse_info(["remote-info", "--system", "flathub", APP_ID])
     ic, lc = local.get("commit", ""), remote.get("commit", "")
     return {
@@ -231,9 +242,11 @@ def start():
     if not _prepare_bwrap():
         return False, "could not prepare capture helper (bwrap)"
     try:
+        # Launch from whichever scope it's installed in (system by default).
+        scope = installed_scope() or "--system"
         # Detached so it outlives this request; its own session group.
         subprocess.Popen(
-            ["flatpak", "run", "--system", "--socket=wayland", APP_ID],
+            ["flatpak", "run", scope, "--socket=wayland", APP_ID],
             env=_launch_env(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
