@@ -446,8 +446,24 @@ def autostart_sunshine():
     cfg = load_config()
     if not cfg["settings"].get("autostartSunshine"):
         return False, True, "autostart disabled"
+    if not sunshine.is_installed():
+        return False, True, "Sunshine not installed"
     ok, msg = sunshine.start()
     return True, ok, msg
+
+
+def sunshine_install():
+    ok, msg = sunshine.ensure_installed()
+    return {"ok": ok, "message": msg, "info": sunshine.version_info()}
+
+
+def sunshine_update():
+    ok, msg = sunshine.update()
+    return {"ok": ok, "message": msg, "info": sunshine.version_info()}
+
+
+def sunshine_version_info():
+    return sunshine.version_info()
 
 
 def sunshine_start():

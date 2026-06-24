@@ -114,6 +114,33 @@ class Plugin:
             decky.logger.exception("set_autostart_sunshine failed")
             return {"error": str(e)}
 
+    # Sunshine install/update/version-check hit flatpak + the network, so run
+    # them off the event loop to keep the UI responsive.
+    async def sunshine_install(self):
+        try:
+            res = await asyncio.to_thread(docky.sunshine_install)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("sunshine_install failed")
+            return {"ok": False, "message": str(e)}
+
+    async def sunshine_update(self):
+        try:
+            res = await asyncio.to_thread(docky.sunshine_update)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("sunshine_update failed")
+            return {"ok": False, "message": str(e)}
+
+    async def sunshine_version_info(self):
+        try:
+            return await asyncio.to_thread(docky.sunshine_version_info)
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("sunshine_version_info failed")
+            return {"error": str(e)}
+
     # Sunshine start/stop/restart block while waiting on the port, so run them
     # off the event loop to keep the UI responsive.
     async def sunshine_start(self):

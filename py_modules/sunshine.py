@@ -141,6 +141,63 @@ def ensure_installed():
     return False, (res.stderr or res.stdout or "install failed").strip()[:300]
 
 
+def update():
+    """Update the installed Sunshine flatpak to the latest on flathub."""
+    if not is_installed():
+        return False, "Sunshine is not installed"
+    try:
+        subprocess.run(
+            ["flatpak", "remote-add", "--if-not-exists", "--system", "flathub", FLATHUB_REPO],
+            capture_output=True, text=True, env=_clean_env(),
+        )
+        res = _flatpak(["update", "--system", "--noninteractive", APP_ID])
+    except OSError as e:
+        return False, "flatpak not available: %s" % e
+    if res.returncode == 0:
+        return True, "Sunshine updated"
+    return False, (res.stderr or res.stdout or "update failed").strip()[:300]
+
+
+def _parse_info(args):
+    """Run `flatpak <args>` and parse its 'Key: value' output into a dict."""
+    out = {}
+    try:
+        res = subprocess.run(["flatpak"] + args, capture_output=True, text=True,
+                             env=_clean_env())
+    except OSError:
+        return out
+    if res.returncode != 0:
+        return out
+    for line in (res.stdout or "").splitlines():
+        key, sep, val = line.partition(":")
+        if sep:
+            out[key.strip().lower()] = val.strip()
+    return out
+
+
+def version_info():
+    """Report installed vs latest-on-flathub, and whether an update is available.
+    Compares commits (robust) for update detection; versions are for display."""
+    # Make sure flathub exists so 'latest' resolves even on a fresh machine.
+    try:
+        subprocess.run(
+            ["flatpak", "remote-add", "--if-not-exists", "--system", "flathub", FLATHUB_REPO],
+            capture_output=True, text=True, env=_clean_env(),
+        )
+    except OSError:
+        pass
+    inst = is_installed()
+    local = _parse_info(["info", "--system", APP_ID]) if inst else {}
+    remote = _parse_info(["remote-info", "--system", "flathub", APP_ID])
+    ic, lc = local.get("commit", ""), remote.get("commit", "")
+    return {
+        "installed": inst,
+        "installedVersion": local.get("version", ""),
+        "latestVersion": remote.get("version", ""),
+        "updateAvailable": bool(inst and ic and lc and ic != lc),
+    }
+
+
 def _prepare_bwrap():
     """Create the root-owned, setuid bwrap copy flatpak will use for capture."""
     dst = _bwrap_copy()
@@ -164,12 +221,13 @@ def _wait(predicate, tries=24, delay=0.25):
 
 
 def start():
-    """Launch Sunshine in the Game-Mode session. Returns (ok, message)."""
+    """Launch Sunshine in the Game-Mode session. Returns (ok, message).
+
+    Does NOT auto-install — installation is opt-in via Settings → Sunshine."""
     if is_running():
         return True, "Sunshine already running"
-    ok, msg = ensure_installed()
-    if not ok:
-        return False, msg
+    if not is_installed():
+        return False, "Sunshine is not installed — install it in Settings → Sunshine"
     if not _prepare_bwrap():
         return False, "could not prepare capture helper (bwrap)"
     try:

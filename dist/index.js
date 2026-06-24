@@ -382,6 +382,25 @@
         } },
         window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, label),
         window.SP_REACT.createElement("span", { style: { opacity: 0.6, fontSize: "0.85em" } }, sub ? sub + " ›" : "›")));
+    // Render a single task field bound to `value`, calling onChange with the new
+    // value. Used to edit a task already in an action (bool/select/profile/text).
+    function renderTaskField(f, value, onChange, profiles) {
+        if (f.kind === "bool") {
+            return (window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { key: f.key, label: f.label, checked: !!value, onChange: (v) => onChange(v) }));
+        }
+        if (f.kind === "profile") {
+            if (!profiles.length) {
+                return (window.SP_REACT.createElement(deckyFrontendLib.Field, { key: f.key, label: f.label },
+                    window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, "No PCSX2 profiles found")));
+            }
+            return (window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { key: f.key, label: f.label, rgOptions: profiles.map((p) => ({ data: p, label: p })), selectedOption: value || profiles[0], onChange: (o) => onChange(o.data) }));
+        }
+        if (f.kind === "select") {
+            const opts = f.options || [];
+            return (window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { key: f.key, label: f.label, rgOptions: opts, selectedOption: value ?? (opts[0] ? opts[0].data : ""), onChange: (o) => onChange(o.data) }));
+        }
+        return window.SP_REACT.createElement(TextRow, { key: f.key, label: f.label, value: value ?? "", onChange: (v) => onChange(v) });
+    }
     // Pick an action/mode (encoded "kind:id") not yet favorited, and add it.
     const AddFavorite = ({ options, busy, onAdd }) => {
         const [sel, setSel] = react.useState(options[0] ? options[0].data : "");
@@ -402,6 +421,46 @@
         const [tab, setTab] = react.useState("actions");
         const [selAction, setSelAction] = react.useState(null);
         const [selMode, setSelMode] = react.useState(null);
+        // Sunshine tab (live actions, not part of the config draft).
+        const [sunInfo, setSunInfo] = react.useState(null);
+        const [sunBusy, setSunBusy] = react.useState(false);
+        const [sunMsg, setSunMsg] = react.useState("");
+        function refreshSunshine() {
+            setSunBusy(true);
+            setSunMsg("Checking flathub…");
+            call("sunshine_version_info")
+                .then((r) => {
+                setSunBusy(false);
+                setSunInfo(r);
+                setSunMsg("");
+            })
+                .catch((err) => {
+                setSunBusy(false);
+                setSunMsg("Error: " + errText(err));
+            });
+        }
+        function doSunshine(method, verb) {
+            setSunBusy(true);
+            setSunMsg(verb + " Sunshine… (this can take a minute)");
+            call(method)
+                .then((r) => {
+                setSunBusy(false);
+                if (r && r.info)
+                    setSunInfo(r.info);
+                if (r && r.state)
+                    onSaved(r.state);
+                setSunMsg(r && r.message ? r.message : verb + " done");
+            })
+                .catch((err) => {
+                setSunBusy(false);
+                setSunMsg("Error: " + errText(err));
+            });
+        }
+        // Check versions the first time the Sunshine tab is opened.
+        react.useEffect(() => {
+            if (tab === "sunshine" && !sunInfo && !sunBusy)
+                refreshSunshine();
+        }, [tab]);
         function mutate(fn) {
             const next = clone(cfg);
             next.actions = next.actions || {};
@@ -489,8 +548,29 @@
                     window.SP_REACT.createElement(Card, { title: action.name || aid },
                         window.SP_REACT.createElement(TextRow, { label: "Name", value: action.name, onChange: (val) => mutate((n) => { n.actions[aid].name = val; }) }),
                         window.SP_REACT.createElement("div", { style: { fontWeight: 600, margin: "6px 0 2px" } }, "Tasks"),
-                        (action.tasks || []).length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6, margin: "4px 0" } }, "No tasks yet")) : ((action.tasks || []).map((task, ti) => (window.SP_REACT.createElement(deckyFrontendLib.Field, { key: ti, label: summarizeTask(task), bottomSeparator: "none" },
-                            window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { style: { width: "8em" }, disabled: busy, onClick: () => mutate((n) => { n.actions[aid].tasks.splice(ti, 1); }) }, "Remove"))))),
+                        (action.tasks || []).length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6, margin: "4px 0" } }, "No tasks yet")) : ((action.tasks || []).map((task, ti) => {
+                            const d = taskDef(task.type);
+                            const fields = d ? d.fields : [];
+                            const setField = (f, value) => mutate((n) => {
+                                const t = n.actions[aid].tasks[ti];
+                                if (f.kind === "bool") {
+                                    if (value)
+                                        t[f.key] = true;
+                                    else
+                                        delete t[f.key];
+                                }
+                                else if (value === "" || value === undefined) {
+                                    delete t[f.key];
+                                }
+                                else {
+                                    t[f.key] = value;
+                                }
+                            });
+                            return (window.SP_REACT.createElement(Card, { key: ti, title: d ? d.label : task.type },
+                                window.SP_REACT.createElement("div", { style: { fontSize: "0.78em", opacity: 0.6, marginBottom: "4px" } }, summarizeTask(task)),
+                                fields.map((f) => renderTaskField(f, task[f.key], (v) => setField(f, v), profiles)),
+                                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { style: { marginTop: "6px" }, disabled: busy, onClick: () => mutate((n) => { n.actions[aid].tasks.splice(ti, 1); }) }, "Remove task")));
+                        })),
                         window.SP_REACT.createElement(AddTask, { profiles: profiles, busy: busy, onAdd: (task) => mutate((n) => {
                                 n.actions[aid].tasks = n.actions[aid].tasks || [];
                                 n.actions[aid].tasks.push(task);
@@ -597,6 +677,30 @@
                         n.favorites.push({ kind, id });
                     }) }))));
         }
+        // ---- SUNSHINE TAB ----
+        function renderSunshine() {
+            const info = sunInfo;
+            const InfoRow = ({ label, value }) => (window.SP_REACT.createElement("div", { style: { display: "flex", justifyContent: "space-between", padding: "4px 0" } },
+                window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, label),
+                window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, value || "—")));
+            return (window.SP_REACT.createElement("div", null,
+                window.SP_REACT.createElement("div", { style: { fontWeight: 700, margin: "2px 0 6px" } }, "Sunshine"),
+                window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.6, marginBottom: "10px" } }, "Docky installs Sunshine from Flathub (the official LizardByte build) and keeps it updated from there. It isn\u2019t installed until you enable it here."),
+                !info ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, sunBusy ? "Checking…" : "—")) : (window.SP_REACT.createElement(window.SP_REACT.Fragment, null,
+                    window.SP_REACT.createElement(InfoRow, { label: "Status", value: info.installed ? "Installed" : "Not installed" }),
+                    window.SP_REACT.createElement(InfoRow, { label: "Current version", value: info.installedVersion }),
+                    window.SP_REACT.createElement(InfoRow, { label: "Latest version", value: info.latestVersion }),
+                    info.installed ? (window.SP_REACT.createElement("div", { style: {
+                            fontSize: "0.85em",
+                            margin: "4px 0",
+                            color: info.updateAvailable ? "#e8a33d" : undefined,
+                            opacity: info.updateAvailable ? 1 : 0.6,
+                        } }, info.updateAvailable ? "Update available" : "Up to date")) : null)),
+                window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px", marginTop: "10px" } },
+                    info && !info.installed ? (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: sunBusy, onClick: () => doSunshine("sunshine_install", "Installing") }, "Install & enable Sunshine")) : (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: sunBusy || !(info && info.updateAvailable), onClick: () => doSunshine("sunshine_update", "Updating") }, "Update Sunshine")),
+                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: sunBusy, onClick: refreshSunshine }, "Refresh")),
+                sunMsg ? (window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.8, marginTop: "10px" } }, sunMsg)) : null));
+        }
         // ---- AUTO-DOCK TAB ----
         function renderAutoDock() {
             const strict = cfg.settings.requireExternalDisplay !== false; // default true
@@ -627,11 +731,13 @@
                 window.SP_REACT.createElement(TabButton, { active: tab === "actions", label: "Actions", onClick: () => setTab("actions") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "modes", label: "Modes", onClick: () => setTab("modes") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "favorites", label: "Favorites", onClick: () => setTab("favorites") }),
+                window.SP_REACT.createElement(TabButton, { active: tab === "sunshine", label: "Sunshine", onClick: () => setTab("sunshine") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "autodock", label: "Auto-dock", onClick: () => setTab("autodock") })),
             window.SP_REACT.createElement("div", { style: { maxHeight: "62vh", overflowY: "scroll", paddingRight: "6px" } },
                 tab === "actions" ? renderActions() : null,
                 tab === "modes" ? renderModes() : null,
                 tab === "favorites" ? renderFavorites() : null,
+                tab === "sunshine" ? renderSunshine() : null,
                 tab === "autodock" ? renderAutoDock() : null)));
     };
 

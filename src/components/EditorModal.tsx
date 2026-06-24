@@ -1,4 +1,4 @@
-import { VFC, useState } from "react";
+import { VFC, useState, useEffect } from "react";
 import {
   ModalRoot,
   DialogButton,
@@ -12,7 +12,14 @@ import { Config, Favorite, Task, call, clone, errText, slugify, toast, uniqueId 
 import { BUILTIN_DEFS, GENERIC_DEFS, TaskField, TaskTypeDef, taskDef, summarizeTask } from "../taskdefs";
 import { Card, TextRow } from "./inputs";
 
-type TabId = "actions" | "modes" | "favorites" | "autodock";
+type TabId = "actions" | "modes" | "favorites" | "sunshine" | "autodock";
+
+interface SunshineInfo {
+  installed: boolean;
+  installedVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+}
 
 // Sentinel for the top-level dropdown entry that groups the curated Docky tasks.
 const DOCKY_BUILTIN = "__docky_builtin__";
@@ -382,6 +389,47 @@ export const EditorModal: VFC<{
   const [selAction, setSelAction] = useState<string | null>(null);
   const [selMode, setSelMode] = useState<string | null>(null);
 
+  // Sunshine tab (live actions, not part of the config draft).
+  const [sunInfo, setSunInfo] = useState<SunshineInfo | null>(null);
+  const [sunBusy, setSunBusy] = useState<boolean>(false);
+  const [sunMsg, setSunMsg] = useState<string>("");
+
+  function refreshSunshine() {
+    setSunBusy(true);
+    setSunMsg("Checking flathub…");
+    call<SunshineInfo>("sunshine_version_info")
+      .then((r) => {
+        setSunBusy(false);
+        setSunInfo(r);
+        setSunMsg("");
+      })
+      .catch((err) => {
+        setSunBusy(false);
+        setSunMsg("Error: " + errText(err));
+      });
+  }
+
+  function doSunshine(method: string, verb: string) {
+    setSunBusy(true);
+    setSunMsg(verb + " Sunshine… (this can take a minute)");
+    call<any>(method)
+      .then((r) => {
+        setSunBusy(false);
+        if (r && r.info) setSunInfo(r.info);
+        if (r && r.state) onSaved(r.state);
+        setSunMsg(r && r.message ? r.message : verb + " done");
+      })
+      .catch((err) => {
+        setSunBusy(false);
+        setSunMsg("Error: " + errText(err));
+      });
+  }
+
+  // Check versions the first time the Sunshine tab is opened.
+  useEffect(() => {
+    if (tab === "sunshine" && !sunInfo && !sunBusy) refreshSunshine();
+  }, [tab]);
+
   function mutate(fn: (n: Config) => void) {
     const next = clone(cfg);
     next.actions = next.actions || {};
@@ -748,6 +796,72 @@ export const EditorModal: VFC<{
     );
   }
 
+  // ---- SUNSHINE TAB ----
+  function renderSunshine() {
+    const info = sunInfo;
+    const InfoRow: VFC<{ label: string; value: string }> = ({ label, value }) => (
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+        <span style={{ opacity: 0.7 }}>{label}</span>
+        <span style={{ fontWeight: 600 }}>{value || "—"}</span>
+      </div>
+    );
+    return (
+      <div>
+        <div style={{ fontWeight: 700, margin: "2px 0 6px" }}>Sunshine</div>
+        <div style={{ fontSize: "0.8em", opacity: 0.6, marginBottom: "10px" }}>
+          Docky installs Sunshine from Flathub (the official LizardByte build) and
+          keeps it updated from there. It isn’t installed until you enable it here.
+        </div>
+
+        {!info ? (
+          <div style={{ opacity: 0.6 }}>{sunBusy ? "Checking…" : "—"}</div>
+        ) : (
+          <>
+            <InfoRow label="Status" value={info.installed ? "Installed" : "Not installed"} />
+            <InfoRow label="Current version" value={info.installedVersion} />
+            <InfoRow label="Latest version" value={info.latestVersion} />
+            {info.installed ? (
+              <div
+                style={{
+                  fontSize: "0.85em",
+                  margin: "4px 0",
+                  color: info.updateAvailable ? "#e8a33d" : undefined,
+                  opacity: info.updateAvailable ? 1 : 0.6,
+                }}
+              >
+                {info.updateAvailable ? "Update available" : "Up to date"}
+              </div>
+            ) : null}
+          </>
+        )}
+
+        <Focusable
+          flow-children="horizontal"
+          style={{ display: "flex", gap: "8px", marginTop: "10px" }}
+        >
+          {info && !info.installed ? (
+            <DialogButton disabled={sunBusy} onClick={() => doSunshine("sunshine_install", "Installing")}>
+              Install &amp; enable Sunshine
+            </DialogButton>
+          ) : (
+            <DialogButton
+              disabled={sunBusy || !(info && info.updateAvailable)}
+              onClick={() => doSunshine("sunshine_update", "Updating")}
+            >
+              Update Sunshine
+            </DialogButton>
+          )}
+          <DialogButton disabled={sunBusy} onClick={refreshSunshine}>
+            Refresh
+          </DialogButton>
+        </Focusable>
+        {sunMsg ? (
+          <div style={{ fontSize: "0.8em", opacity: 0.8, marginTop: "10px" }}>{sunMsg}</div>
+        ) : null}
+      </div>
+    );
+  }
+
   // ---- AUTO-DOCK TAB ----
   function renderAutoDock() {
     const strict = cfg.settings.requireExternalDisplay !== false; // default true
@@ -830,6 +944,7 @@ export const EditorModal: VFC<{
         <TabButton active={tab === "actions"} label="Actions" onClick={() => setTab("actions")} />
         <TabButton active={tab === "modes"} label="Modes" onClick={() => setTab("modes")} />
         <TabButton active={tab === "favorites"} label="Favorites" onClick={() => setTab("favorites")} />
+        <TabButton active={tab === "sunshine"} label="Sunshine" onClick={() => setTab("sunshine")} />
         <TabButton active={tab === "autodock"} label="Auto-dock" onClick={() => setTab("autodock")} />
       </Focusable>
 
@@ -838,6 +953,7 @@ export const EditorModal: VFC<{
         {tab === "actions" ? renderActions() : null}
         {tab === "modes" ? renderModes() : null}
         {tab === "favorites" ? renderFavorites() : null}
+        {tab === "sunshine" ? renderSunshine() : null}
         {tab === "autodock" ? renderAutoDock() : null}
       </div>
     </ModalRoot>
