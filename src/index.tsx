@@ -149,14 +149,14 @@ const Content: VFC = () => {
       });
   }
 
-  function toggleAuto(v: boolean) {
+  function toggleTrigger(key: string, label: string, v: boolean) {
     setBusy(true);
-    call<{ state?: DockyState }>("set_auto_dock", { enabled: v })
+    call<{ state?: DockyState }>("set_trigger", { key, enabled: v })
       .then((r) => {
         setBusy(false);
         if (r && r.state) setState(r.state);
         else refresh();
-        setMsg("Auto Dock Detection " + (v ? "ON" : "OFF"));
+        setMsg(label + " " + (v ? "ON" : "OFF"));
       })
       .catch((err) => {
         setBusy(false);
@@ -263,14 +263,30 @@ const Content: VFC = () => {
             </IconButton>
           </Focusable>
         </PanelSectionRow>
+      </PanelSection>
+
+      <PanelSection title="Triggers">
+        {[
+          { key: "autoDockDetection", label: "Dock / undock", desc: "Switch modes when you dock or undock" },
+          { key: "autoAcDetection", label: "AC power", desc: "Switch modes when AC power connects/disconnects" },
+          { key: "autoControllerDetection", label: "External controller", desc: "Switch modes when a controller connects/disconnects" },
+          { key: "autoResume", label: "Resume from sleep", desc: "Re-apply a mode when the Deck wakes" },
+          { key: "autoStartup", label: "Startup", desc: "Apply a mode when Docky loads at boot" },
+        ].map((t) => (
+          <PanelSectionRow key={t.key}>
+            <ToggleField
+              label={t.label}
+              description={t.desc}
+              checked={!!(sett as any)[t.key]}
+              disabled={busy}
+              onChange={(v) => toggleTrigger(t.key, t.label, v)}
+            />
+          </PanelSectionRow>
+        ))}
         <PanelSectionRow>
-          <ToggleField
-            label="Auto Dock Detection"
-            description="Auto-switch modes when you dock/undock"
-            checked={!!sett.autoDockDetection}
-            disabled={busy}
-            onChange={toggleAuto}
-          />
+          <div style={{ fontSize: "0.7em", opacity: 0.6, padding: "0 4px" }}>
+            Map each trigger to a mode in Settings (gear) → Triggers.
+          </div>
         </PanelSectionRow>
       </PanelSection>
 

@@ -897,8 +897,51 @@ export const EditorModal: VFC<{
           selectedOption={cfg.settings.undockedMode || ""}
           onChange={(o) => mutate((n) => { n.settings.undockedMode = o.data; })}
         />
+
+        <div style={{ fontWeight: 700, margin: "14px 0 2px" }}>AC power</div>
+        <DropdownItem
+          label="When AC connects → mode"
+          rgOptions={modeOpts}
+          selectedOption={cfg.settings.acMode || ""}
+          onChange={(o) => mutate((n) => { n.settings.acMode = o.data; })}
+        />
+        <DropdownItem
+          label="When on battery → mode"
+          rgOptions={modeOpts}
+          selectedOption={cfg.settings.noAcMode || ""}
+          onChange={(o) => mutate((n) => { n.settings.noAcMode = o.data; })}
+        />
+
+        <div style={{ fontWeight: 700, margin: "14px 0 2px" }}>External controller</div>
+        <DropdownItem
+          label="When a controller connects → mode"
+          rgOptions={modeOpts}
+          selectedOption={cfg.settings.controllerConnectMode || ""}
+          onChange={(o) => mutate((n) => { n.settings.controllerConnectMode = o.data; })}
+        />
+        <DropdownItem
+          label="When it disconnects → mode"
+          rgOptions={modeOpts}
+          selectedOption={cfg.settings.controllerDisconnectMode || ""}
+          onChange={(o) => mutate((n) => { n.settings.controllerDisconnectMode = o.data; })}
+        />
+
+        <div style={{ fontWeight: 700, margin: "14px 0 2px" }}>Resume &amp; startup</div>
+        <DropdownItem
+          label="On wake from sleep → mode"
+          rgOptions={modeOpts}
+          selectedOption={cfg.settings.resumeMode || ""}
+          onChange={(o) => mutate((n) => { n.settings.resumeMode = o.data; })}
+        />
+        <DropdownItem
+          label="On startup (boot) → mode"
+          rgOptions={modeOpts}
+          selectedOption={cfg.settings.startupMode || ""}
+          onChange={(o) => mutate((n) => { n.settings.startupMode = o.data; })}
+        />
+
         <TextRow
-          label="Dock poll interval (seconds)"
+          label="Poll interval (seconds)"
           value={String(cfg.settings.pollSeconds || 3)}
           onChange={(val) =>
             mutate((n) => {
@@ -907,6 +950,9 @@ export const EditorModal: VFC<{
             })
           }
         />
+        <div style={{ fontSize: "0.7em", opacity: 0.6, marginTop: "6px" }}>
+          Enable each trigger from the panel's Triggers section; map it to a mode here.
+        </div>
       </div>
     );
   }
@@ -936,7 +982,7 @@ export const EditorModal: VFC<{
         <TabButton active={tab === "modes"} label="Modes" onClick={() => setTab("modes")} />
         <TabButton active={tab === "favorites"} label="Favorites" onClick={() => setTab("favorites")} />
         <TabButton active={tab === "sunshine"} label="Sunshine" onClick={() => setTab("sunshine")} />
-        <TabButton active={tab === "autodock"} label="Auto-dock" onClick={() => setTab("autodock")} />
+        <TabButton active={tab === "autodock"} label="Triggers" onClick={() => setTab("autodock")} />
       </Focusable>
 
       {/* tab content */}

@@ -56,6 +56,21 @@ def default_config():
             # Launch Sunshine when the plugin loads (i.e. at boot), so streaming
             # is available after a reboot without opening the panel.
             "autostartSunshine": True,
+            # --- additional triggers (each a toggle + its own mode mapping) ---
+            # AC power connect/disconnect.
+            "autoAcDetection": False,
+            "acMode": "",        # on AC connected
+            "noAcMode": "",      # on AC disconnected (battery)
+            # External controller connect/disconnect.
+            "autoControllerDetection": False,
+            "controllerConnectMode": "",
+            "controllerDisconnectMode": "",
+            # Resume from sleep/wake.
+            "autoResume": False,
+            "resumeMode": "",
+            # Startup (when Docky loads at boot).
+            "autoStartup": False,
+            "startupMode": "",
         },
         "actions": {},
         "modes": {},
@@ -594,11 +609,29 @@ def set_autostart_sunshine(enabled):
 
 
 def set_auto_dock(enabled):
+    return set_trigger("autoDockDetection", enabled)
+
+
+# Trigger toggle keys -> the state field they baseline + how to read it now, so
+# enabling a trigger acts only on the NEXT change rather than firing immediately.
+_TRIGGER_BASELINE = {
+    "autoDockDetection": ("lastDock", lambda cfg: is_docked(cfg)),
+    "autoAcDetection": ("lastAc", lambda cfg: padswap.ac_present()),
+    "autoControllerDetection": ("lastController", lambda cfg: deckops.external_controller_present()),
+}
+
+
+def set_trigger(key, enabled):
+    """Enable/disable one automation trigger and baseline its current state."""
     cfg = load_config()
-    cfg["settings"]["autoDockDetection"] = bool(enabled)
+    if key not in cfg["settings"]:
+        return cfg["settings"]
+    cfg["settings"][key] = bool(enabled)
     save_config(cfg)
-    # baseline current dock state so we only act on the NEXT change
-    st = load_state()
-    st["lastDock"] = is_docked(cfg)
-    save_state(st)
+    base = _TRIGGER_BASELINE.get(key)
+    if base:
+        field, read = base
+        st = load_state()
+        st[field] = read(cfg)
+        save_state(st)
     return cfg["settings"]

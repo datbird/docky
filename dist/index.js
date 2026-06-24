@@ -748,10 +748,20 @@
                 window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.6, marginBottom: "6px" } }, "Which mode to switch to when docking / undocking."),
                 window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When docked \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.dockedMode || "", onChange: (o) => mutate((n) => { n.settings.dockedMode = o.data; }) }),
                 window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When undocked \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.undockedMode || "", onChange: (o) => mutate((n) => { n.settings.undockedMode = o.data; }) }),
-                window.SP_REACT.createElement(TextRow, { label: "Dock poll interval (seconds)", value: String(cfg.settings.pollSeconds || 3), onChange: (val) => mutate((n) => {
+                window.SP_REACT.createElement("div", { style: { fontWeight: 700, margin: "14px 0 2px" } }, "AC power"),
+                window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When AC connects \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.acMode || "", onChange: (o) => mutate((n) => { n.settings.acMode = o.data; }) }),
+                window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When on battery \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.noAcMode || "", onChange: (o) => mutate((n) => { n.settings.noAcMode = o.data; }) }),
+                window.SP_REACT.createElement("div", { style: { fontWeight: 700, margin: "14px 0 2px" } }, "External controller"),
+                window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When a controller connects \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.controllerConnectMode || "", onChange: (o) => mutate((n) => { n.settings.controllerConnectMode = o.data; }) }),
+                window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "When it disconnects \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.controllerDisconnectMode || "", onChange: (o) => mutate((n) => { n.settings.controllerDisconnectMode = o.data; }) }),
+                window.SP_REACT.createElement("div", { style: { fontWeight: 700, margin: "14px 0 2px" } }, "Resume & startup"),
+                window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "On wake from sleep \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.resumeMode || "", onChange: (o) => mutate((n) => { n.settings.resumeMode = o.data; }) }),
+                window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "On startup (boot) \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.startupMode || "", onChange: (o) => mutate((n) => { n.settings.startupMode = o.data; }) }),
+                window.SP_REACT.createElement(TextRow, { label: "Poll interval (seconds)", value: String(cfg.settings.pollSeconds || 3), onChange: (val) => mutate((n) => {
                         const num = parseInt(val, 10);
                         n.settings.pollSeconds = isNaN(num) || num < 1 ? 1 : num;
-                    }) })));
+                    }) }),
+                window.SP_REACT.createElement("div", { style: { fontSize: "0.7em", opacity: 0.6, marginTop: "6px" } }, "Enable each trigger from the panel's Triggers section; map it to a mode here.")));
         }
         return (window.SP_REACT.createElement(deckyFrontendLib.ModalRoot, { onCancel: closeModal, onEscKeypress: closeModal },
             window.SP_REACT.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" } },
@@ -766,7 +776,7 @@
                 window.SP_REACT.createElement(TabButton, { active: tab === "modes", label: "Modes", onClick: () => setTab("modes") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "favorites", label: "Favorites", onClick: () => setTab("favorites") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "sunshine", label: "Sunshine", onClick: () => setTab("sunshine") }),
-                window.SP_REACT.createElement(TabButton, { active: tab === "autodock", label: "Auto-dock", onClick: () => setTab("autodock") })),
+                window.SP_REACT.createElement(TabButton, { active: tab === "autodock", label: "Triggers", onClick: () => setTab("autodock") })),
             window.SP_REACT.createElement("div", { style: { maxHeight: "62vh", overflowY: "scroll", paddingRight: "6px" } },
                 tab === "actions" ? renderActions() : null,
                 tab === "modes" ? renderModes() : null,
@@ -1017,16 +1027,16 @@
                 toast(text);
             });
         }
-        function toggleAuto(v) {
+        function toggleTrigger(key, label, v) {
             setBusy(true);
-            call("set_auto_dock", { enabled: v })
+            call("set_trigger", { key, enabled: v })
                 .then((r) => {
                 setBusy(false);
                 if (r && r.state)
                     setState(r.state);
                 else
                     refresh();
-                setMsg("Auto Dock Detection " + (v ? "ON" : "OFF"));
+                setMsg(label + " " + (v ? "ON" : "OFF"));
             })
                 .catch((err) => {
                 setBusy(false);
@@ -1096,9 +1106,18 @@
                         window.SP_REACT.createElement(IconButton, { label: "Reload", disabled: busy, onClick: refresh },
                             window.SP_REACT.createElement(ReloadIcon, null)),
                         window.SP_REACT.createElement(IconButton, { label: "Settings", disabled: busy, onClick: openEditor },
-                            window.SP_REACT.createElement(SettingsIcon, null)))),
+                            window.SP_REACT.createElement(SettingsIcon, null))))),
+            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Triggers" },
+                [
+                    { key: "autoDockDetection", label: "Dock / undock", desc: "Switch modes when you dock or undock" },
+                    { key: "autoAcDetection", label: "AC power", desc: "Switch modes when AC power connects/disconnects" },
+                    { key: "autoControllerDetection", label: "External controller", desc: "Switch modes when a controller connects/disconnects" },
+                    { key: "autoResume", label: "Resume from sleep", desc: "Re-apply a mode when the Deck wakes" },
+                    { key: "autoStartup", label: "Startup", desc: "Apply a mode when Docky loads at boot" },
+                ].map((t) => (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: t.key },
+                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: t.label, description: t.desc, checked: !!sett[t.key], disabled: busy, onChange: (v) => toggleTrigger(t.key, t.label, v) })))),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Auto Dock Detection", description: "Auto-switch modes when you dock/undock", checked: !!sett.autoDockDetection, disabled: busy, onChange: toggleAuto }))),
+                    window.SP_REACT.createElement("div", { style: { fontSize: "0.7em", opacity: 0.6, padding: "0 4px" } }, "Map each trigger to a mode in Settings (gear) \u2192 Triggers."))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Sunshine" },
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px" } },

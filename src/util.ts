@@ -25,6 +25,17 @@ export interface Settings {
   requireAcPower?: boolean;
   requireUsbHub?: boolean;
   autostartSunshine?: boolean;
+  // additional triggers
+  autoAcDetection?: boolean;
+  acMode?: string;
+  noAcMode?: string;
+  autoControllerDetection?: boolean;
+  controllerConnectMode?: string;
+  controllerDisconnectMode?: string;
+  autoResume?: boolean;
+  resumeMode?: string;
+  autoStartup?: boolean;
+  startupMode?: string;
 }
 export interface Favorite {
   kind: "action" | "mode";

@@ -1,6 +1,7 @@
 import asyncio
 import os
 import pwd
+import time
 
 import decky
 
@@ -16,33 +17,78 @@ except KeyError:
 import docky
 
 
-async def _dock_watch():
-    # Poll dock state; on a transition (while auto-dock is enabled) activate the
-    # mapped mode. Emulator-guarded so it won't clobber a live PCSX2. Module-level
-    # (NOT a Plugin method) — Decky's class wrapping breaks self.method() calls.
+# Transition triggers: (enable flag, state field, read-now fn, on-true mode key,
+# on-false mode key, label). On each poll, an enabled trigger whose state flips
+# activates the mapped mode.
+_TRANSITION_TRIGGERS = [
+    ("autoDockDetection", "lastDock", lambda cfg: docky.is_docked(cfg),
+     "dockedMode", "undockedMode", "dock"),
+    ("autoAcDetection", "lastAc", lambda cfg: docky.padswap.ac_present(),
+     "acMode", "noAcMode", "AC power"),
+    ("autoControllerDetection", "lastController",
+     lambda cfg: docky.deckops.external_controller_present(),
+     "controllerConnectMode", "controllerDisconnectMode", "controller"),
+]
+
+
+def _fire(mode, why):
+    if not mode:
+        return
+    decky.logger.info("trigger %s -> mode '%s'", why, mode)
+    docky.activate_mode(mode, allow_running_emu=False)
+
+
+async def _trigger_watch():
+    # Poll all enabled triggers; on a transition activate the mapped mode. Also
+    # detect resume-from-sleep via CLOCK_BOOTTIME (counts suspend) vs MONOTONIC
+    # (does not). Module-level — Decky's class wrapping breaks self.method().
+    mono0 = time.monotonic()
+    boot0 = time.clock_gettime(time.CLOCK_BOOTTIME)
     while True:
         poll = 3
         try:
             cfg = docky.load_config()
             s = cfg["settings"]
             poll = max(1, int(s.get("pollSeconds", 3)))
-            if s.get("autoDockDetection"):
-                st = docky.load_state()
-                docked = docky.is_docked(cfg)
-                last = st.get("lastDock")
-                if last is not None and docked != last:
-                    mode = s["dockedMode"] if docked else s["undockedMode"]
-                    decky.logger.info("auto-dock: %s -> mode '%s'",
-                                      "docked" if docked else "undocked", mode)
-                    docky.activate_mode(mode, allow_running_emu=False)
-                st["lastDock"] = docked
-                docky.save_state(st)
+            st = docky.load_state()
+
+            # resume detection: boot-time advanced far more than awake time.
+            mono1 = time.monotonic()
+            boot1 = time.clock_gettime(time.CLOCK_BOOTTIME)
+            slept = (boot1 - boot0) - (mono1 - mono0)
+            mono0, boot0 = mono1, boot1
+            if s.get("autoResume") and slept > 20:
+                _fire(s.get("resumeMode"), "resume (slept %ds)" % int(slept))
+
+            for flag, field, read, on_true, on_false, label in _TRANSITION_TRIGGERS:
+                if not s.get(flag):
+                    continue
+                cur = read(cfg)
+                last = st.get(field)
+                if last is not None and cur != last:
+                    _fire(s.get(on_true) if cur else s.get(on_false),
+                          "%s %s" % (label, "on" if cur else "off"))
+                st[field] = cur
+            docky.save_state(st)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
-            decky.logger.exception("dock watch error")
+            decky.logger.exception("trigger watch error")
             poll = 5
         await asyncio.sleep(poll)
+
+
+async def _startup_trigger():
+    # Run the startup mode once on load (boot), if enabled. Off the event loop
+    # since it may run blocking tasks.
+    try:
+        cfg = docky.load_config()
+        s = cfg["settings"]
+        if s.get("autoStartup") and s.get("startupMode"):
+            decky.logger.info("trigger startup -> mode '%s'", s["startupMode"])
+            await asyncio.to_thread(docky.activate_mode, s["startupMode"], False)
+    except Exception:  # noqa: BLE001
+        decky.logger.exception("startup trigger failed")
 
 
 async def _autostart_sunshine():
@@ -61,6 +107,7 @@ async def _autostart_sunshine():
 class Plugin:
     _watch_task = None
     _autostart_task = None
+    _startup_task = None
 
     # ---- frontend-callable ----
 
@@ -95,6 +142,14 @@ class Plugin:
             return {"settings": settings, "state": docky.get_state()}
         except Exception as e:  # noqa: BLE001
             decky.logger.exception("set_auto_dock failed")
+            return {"error": str(e)}
+
+    async def set_trigger(self, key, enabled):
+        try:
+            settings = docky.set_trigger(key, enabled)
+            return {"settings": settings, "state": docky.get_state()}
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("set_trigger failed")
             return {"error": str(e)}
 
     async def set_sunshine_login(self, username, password):
@@ -219,8 +274,9 @@ class Plugin:
 
     async def _main(self):
         docky.load_config()  # ensure default exists
-        self._watch_task = asyncio.create_task(_dock_watch())
+        self._watch_task = asyncio.create_task(_trigger_watch())
         self._autostart_task = asyncio.create_task(_autostart_sunshine())
+        self._startup_task = asyncio.create_task(_startup_trigger())
         decky.logger.info("Docky loaded; config=%s", docky.CONFIG_PATH)
 
     async def _unload(self):

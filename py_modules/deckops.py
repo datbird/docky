@@ -8,6 +8,7 @@ user since the PipeWire socket lives in that user's runtime dir.
 """
 
 import os
+import re
 import glob
 import subprocess
 
@@ -137,6 +138,40 @@ def set_builtin_controller(enabled):
     except OSError as e:
         return False, "could not %s controller: %s" % (action, e)
     return True, "built-in controller " + ("enabled" if enabled else "disabled")
+
+
+# ---------------- external controller detection ----------------
+
+def external_controller_present():
+    """True if a real external game controller is connected.
+
+    Parses /proc/bus/input/devices. A genuine external pad has a joystick (jsN)
+    handler, is NOT Valve's vendor 28de (which covers both the built-in Steam
+    Controller and Steam Input's synthesized "X-Box 360 pad" outputs), and is
+    NOT under /devices/virtual/input/ (where those synthesized pads live). Real
+    USB/Bluetooth controllers sit on a real bus or under /virtual/misc/uhid/."""
+    try:
+        with open("/proc/bus/input/devices", encoding="utf-8", errors="ignore") as f:
+            data = f.read()
+    except OSError:
+        return False
+    for block in data.split("\n\n"):
+        if not block.strip():
+            continue
+        has_js = sysfs = vendor = ""
+        has_js = False
+        for line in block.splitlines():
+            if line.startswith("H:") and re.search(r"\bjs\d", line):
+                has_js = True
+            elif line.startswith("S:"):
+                sysfs = line
+            elif line.startswith("I:"):
+                m = re.search(r"Vendor=([0-9a-fA-F]+)", line)
+                if m:
+                    vendor = m.group(1).lower()
+        if has_js and "/virtual/input/" not in sysfs and vendor != "28de":
+            return True
+    return False
 
 
 # ---------------- TDP (power cap) ----------------
