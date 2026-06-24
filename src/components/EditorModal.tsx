@@ -19,6 +19,9 @@ interface SunshineInfo {
   installedVersion: string;
   latestVersion: string;
   updateAvailable: boolean;
+  engine?: string;
+  resolvedEngine?: string;
+  deckySunshineInstalled?: boolean;
 }
 
 // Sentinel for the top-level dropdown entry that groups the curated Docky tasks.
@@ -788,34 +791,48 @@ export const EditorModal: VFC<{
         <span style={{ fontWeight: 600 }}>{value || "—"}</span>
       </div>
     );
-    const engine = cfg.settings.sunshineEngine || "integrated";
-    const integrated = engine === "integrated";
-    const deckyInstalled = installedPlugins.indexOf("decky-sunshine") !== -1;
+    const engine = cfg.settings.sunshineEngine || "auto";
+    const deckyInstalled =
+      (info && info.deckySunshineInstalled) ||
+      installedPlugins.indexOf("decky-sunshine") !== -1;
+    // What's actually in effect (server-resolved when on auto).
+    const resolved = info && info.resolvedEngine
+      ? info.resolvedEngine
+      : engine !== "auto"
+        ? engine
+        : deckyInstalled ? "decky-sunshine" : info && info.installed ? "integrated" : "off";
+    const integrated = resolved === "integrated";
+    const isDecky = resolved === "decky-sunshine";
+    const isOff = resolved === "off";
+    const blurb =
+      isDecky
+        ? "Using the decky-sunshine plugin for install/launch/update. Docky's other Sunshine tasks (stop, encoder, composition, pairing) still work on the shared Sunshine."
+        : isOff
+          ? "Sunshine isn't set up yet. Install & enable it below to let Docky manage it, or install the decky-sunshine plugin and Docky will use that automatically."
+          : "Docky owns Sunshine: installs it from Flathub, launches it, and keeps it updated.";
     return (
       <div>
         <div style={{ fontWeight: 700, margin: "2px 0 6px" }}>Sunshine</div>
-        <div style={{ fontSize: "0.8em", opacity: 0.6, marginBottom: "10px" }}>
-          {integrated
-            ? "Docky owns Sunshine: installs it from Flathub, launches it, and keeps it updated."
-            : "Lifecycle (install/launch/update) is left to the decky-sunshine plugin. Docky's other Sunshine tasks (stop, encoder, composition, pairing) still work on the shared Sunshine."}
-        </div>
+        <div style={{ fontSize: "0.8em", opacity: 0.6, marginBottom: "10px" }}>{blurb}</div>
 
         <DropdownItem
           label="Sunshine engine"
           rgOptions={[
+            { data: "auto", label: "Auto" + (engine === "auto" ? " → " + resolved : "") },
             { data: "integrated", label: "Integrated (Docky)" },
             {
               data: "decky-sunshine",
               label: "decky-sunshine" + (deckyInstalled ? "" : " (not installed)"),
             },
+            { data: "off", label: "Off" },
           ]}
           selectedOption={engine}
           onChange={(o) => mutate((n) => { n.settings.sunshineEngine = o.data; })}
         />
-        {!integrated && !deckyInstalled ? (
+        {engine === "decky-sunshine" && !deckyInstalled ? (
           <div style={{ color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" }}>
             decky-sunshine isn’t installed — install it from the Decky store, or
-            switch back to Integrated.
+            use Auto / Integrated.
           </div>
         ) : null}
 
@@ -845,7 +862,7 @@ export const EditorModal: VFC<{
           flow-children="horizontal"
           style={{ display: "flex", gap: "8px", marginTop: "10px" }}
         >
-          {!integrated ? null : info && !info.installed ? (
+          {isDecky ? null : info && !info.installed ? (
             <DialogButton disabled={sunBusy} onClick={() => doSunshine("sunshine_install", "Installing")}>
               Install &amp; enable Sunshine
             </DialogButton>
@@ -861,7 +878,7 @@ export const EditorModal: VFC<{
             Refresh
           </DialogButton>
         </Focusable>
-        {!integrated ? (
+        {isDecky ? (
           <div style={{ fontSize: "0.8em", opacity: 0.6, marginTop: "6px" }}>
             Install &amp; updates are managed in decky-sunshine.
           </div>

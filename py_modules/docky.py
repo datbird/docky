@@ -54,11 +54,14 @@ def default_config():
             "requireAcPower": False,
             "requireUsbHub": False,
             # Which Sunshine backend Docky's tasks use:
-            #   "integrated"     — Docky owns install/autostart/launch (default).
+            #   "auto"           — detect: decky-sunshine plugin > installed
+            #                      flatpak (integrated) > off (default).
+            #   "integrated"     — Docky owns install/autostart/launch.
             #   "decky-sunshine" — defer lifecycle to the decky-sunshine plugin;
             #                      Docky's shared tasks still operate on the same
             #                      Sunshine flatpak (stop/encoder/composition/pair).
-            "sunshineEngine": "integrated",
+            #   "off"            — Docky ignores Sunshine entirely.
+            "sunshineEngine": "auto",
             # Launch Sunshine when the plugin loads (i.e. at boot), so streaming
             # is available after a reboot without opening the panel.
             "autostartSunshine": True,
@@ -512,50 +515,69 @@ def get_state():
         "pcsx2_profiles": padswap.list_profiles(),
         "pcsx2_running": padswap.pcsx2_running(),
         "installed_plugins": installed_plugins(),
-        "sunshine": dict(sunshine.status(), credsStored=bool(st.get("sunshineAuth"))),
+        "sunshine": dict(sunshine.status(), credsStored=bool(st.get("sunshineAuth")),
+                         engine=sunshine_engine(), resolvedEngine=resolved_engine()),
         "config_path": CONFIG_PATH,
     }
 
 
+DECKY_SUNSHINE = "decky-sunshine"
+
+
 def sunshine_engine():
-    """Which Sunshine backend Docky uses ('integrated' or 'decky-sunshine')."""
+    """The raw sunshineEngine setting ('auto' by default)."""
     eng = (load_config().get("settings", {}) or {}).get("sunshineEngine")
-    return eng if eng in ("integrated", "decky-sunshine") else "integrated"
+    return eng if eng in ("auto", "integrated", DECKY_SUNSHINE, "off") else "auto"
 
 
-def _using_decky_sunshine():
-    return sunshine_engine() == "decky-sunshine"
+def resolved_engine():
+    """The engine actually in effect. 'auto' detects: the decky-sunshine plugin
+    wins; else an installed Sunshine flatpak means integrated; else 'off'."""
+    eng = sunshine_engine()
+    if eng != "auto":
+        return eng
+    if DECKY_SUNSHINE in installed_plugins():
+        return DECKY_SUNSHINE
+    if sunshine.is_installed():
+        return "integrated"
+    return "off"
 
 
 def _eng_start():
-    """Start Sunshine via the selected engine. In decky-sunshine mode Docky does
-    NOT run its own launcher — it verifies the shared flatpak is up (decky-sunshine
-    owns launching it)."""
-    if _using_decky_sunshine():
+    """Start Sunshine via the resolved engine. decky-sunshine: verify the shared
+    flatpak is up (it owns launching). off: nudge the user to set it up."""
+    eng = resolved_engine()
+    if eng == "off":
+        return False, "Sunshine isn't set up — install it in Settings → Sunshine"
+    if eng == DECKY_SUNSHINE:
         if sunshine.is_running():
             return True, "Sunshine running (managed by decky-sunshine)"
         return False, "Sunshine isn't running — start it from decky-sunshine"
-    return sunshine.start()
+    return sunshine.start()  # integrated; start() itself prompts if not installed
 
 
 def _eng_restart():
-    if _using_decky_sunshine():
+    eng = resolved_engine()
+    if eng == "off":
+        return False, "Sunshine isn't set up"
+    if eng == DECKY_SUNSHINE:
         sunshine.stop()
         return True, "Stopped — relaunch from decky-sunshine"
     return sunshine.restart()
 
 
 def autostart_sunshine():
-    """Start Sunshine on plugin load if the autostartSunshine setting is on.
+    """Start Sunshine on plugin load if integrated + autostart is on.
 
-    Returns (attempted, ok, message). Safe to call unconditionally — it no-ops
-    when the setting is off, Sunshine is already running, or decky-sunshine owns
-    Sunshine (it does its own autostart).
+    Returns (attempted, ok, message). No-ops when the resolved engine isn't
+    integrated (off / decky-sunshine), autostart is off, or it's not installed.
     """
-    cfg = load_config()
-    if _using_decky_sunshine():
+    eng = resolved_engine()
+    if eng == DECKY_SUNSHINE:
         return False, True, "decky-sunshine manages Sunshine"
-    if not cfg["settings"].get("autostartSunshine"):
+    if eng == "off":
+        return False, True, "Sunshine integration off"
+    if not load_config()["settings"].get("autostartSunshine"):
         return False, True, "autostart disabled"
     if not sunshine.is_installed():
         return False, True, "Sunshine not installed"
@@ -564,24 +586,26 @@ def autostart_sunshine():
 
 
 def sunshine_install():
-    if _using_decky_sunshine():
+    if resolved_engine() == DECKY_SUNSHINE:
         return {"ok": True, "message": "decky-sunshine manages installation",
-                "info": sunshine.version_info()}
+                "info": sunshine_version_info()}
     ok, msg = sunshine.ensure_installed()
-    return {"ok": ok, "message": msg, "info": sunshine.version_info()}
+    return {"ok": ok, "message": msg, "info": sunshine_version_info()}
 
 
 def sunshine_update():
-    if _using_decky_sunshine():
+    if resolved_engine() == DECKY_SUNSHINE:
         return {"ok": True, "message": "update via decky-sunshine",
-                "info": sunshine.version_info()}
+                "info": sunshine_version_info()}
     ok, msg = sunshine.update()
-    return {"ok": ok, "message": msg, "info": sunshine.version_info()}
+    return {"ok": ok, "message": msg, "info": sunshine_version_info()}
 
 
 def sunshine_version_info():
     info = sunshine.version_info()
     info["engine"] = sunshine_engine()
+    info["resolvedEngine"] = resolved_engine()
+    info["deckySunshineInstalled"] = DECKY_SUNSHINE in installed_plugins()
     return info
 
 
