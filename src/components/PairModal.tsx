@@ -47,6 +47,21 @@ export const PairModal: VFC<{
       });
   }
 
+  function setEnabled(uuid: string, enabled: boolean) {
+    setBusy(true);
+    setMsg(enabled ? "Enabling…" : "Disabling…");
+    call<any>("sunshine_set_client_enabled", { uuid, enabled })
+      .then((r) => {
+        setBusy(false);
+        setMsg((r && r.message) || "done");
+        refreshClients();
+      })
+      .catch((e) => {
+        setBusy(false);
+        setMsg("Error: " + e);
+      });
+  }
+
   function unpairAll() {
     setBusy(true);
     setMsg("Unpairing all…");
@@ -134,17 +149,32 @@ export const PairModal: VFC<{
           {clients.length === 0 ? (
             <div style={{ opacity: 0.6, fontSize: "0.85em" }}>None</div>
           ) : (
-            clients.map((c) => (
-              <div
-                key={c.uuid}
-                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginTop: "4px" }}
-              >
-                <span>{c.name || c.uuid}</span>
-                <DialogButton style={{ width: "7em" }} disabled={busy} onClick={() => unpairOne(c.uuid)}>
-                  Unpair
-                </DialogButton>
-              </div>
-            ))
+            clients.map((c) => {
+              const enabled = c.enabled !== false;
+              return (
+                <div
+                  key={c.uuid}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginTop: "4px" }}
+                >
+                  <span style={{ opacity: enabled ? 1 : 0.5 }}>
+                    {c.name || c.uuid}
+                    {enabled ? "" : " (disabled)"}
+                  </span>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <DialogButton
+                      style={{ width: "7em" }}
+                      disabled={busy}
+                      onClick={() => setEnabled(c.uuid, !enabled)}
+                    >
+                      {enabled ? "Disable" : "Enable"}
+                    </DialogButton>
+                    <DialogButton style={{ width: "7em" }} disabled={busy} onClick={() => unpairOne(c.uuid)}>
+                      Unpair
+                    </DialogButton>
+                  </div>
+                </div>
+              );
+            })
           )}
           {clients.length > 0 ? (
             <div style={{ marginTop: "6px" }}>

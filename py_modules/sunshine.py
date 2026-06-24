@@ -494,3 +494,19 @@ def unpair_all(auth):
     if code in (401, 403):
         return False, "Sunshine rejected the login — set it again"
     return False, "unpair failed (HTTP %s)" % code
+
+
+def set_client_enabled(uuid, enabled, auth):
+    """Enable or disable a paired client (stays paired, but can't connect when
+    disabled). Sunshine's /api/clients/update. Returns (ok, message)."""
+    if not auth:
+        return False, "no Sunshine login set yet"
+    if not uuid:
+        return False, "no device selected"
+    code, resp = _api("/api/clients/update", method="POST", auth=auth,
+                      body={"uuid": uuid, "enabled": bool(enabled)})
+    if code == 200 and _ok_status(resp):
+        return True, "device " + ("enabled" if enabled else "disabled")
+    if code in (401, 403):
+        return False, "Sunshine rejected the login — set it again"
+    return False, "update failed (HTTP %s)" % code

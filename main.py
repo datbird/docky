@@ -195,6 +195,12 @@ class Plugin:
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "message": str(e)}
 
+    async def sunshine_set_client_enabled(self, uuid, enabled):
+        try:
+            return docky.sunshine_set_client_enabled(uuid, enabled)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "message": str(e)}
+
     async def get_config(self):
         try:
             return {"config": docky.load_config(), "path": docky.CONFIG_PATH}

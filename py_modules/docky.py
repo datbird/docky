@@ -554,6 +554,12 @@ def sunshine_unpair_all():
     return {"ok": ok, "message": msg}
 
 
+def sunshine_set_client_enabled(uuid, enabled):
+    st = load_state()
+    ok, msg = sunshine.set_client_enabled(uuid, enabled, st.get("sunshineAuth"))
+    return {"ok": ok, "message": msg}
+
+
 def set_autostart_sunshine(enabled):
     cfg = load_config()
     cfg["settings"]["autostartSunshine"] = bool(enabled)
