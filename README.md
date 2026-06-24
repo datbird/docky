@@ -1,98 +1,94 @@
 # Docky
 
-Steam Deck automation, runnable entirely from Game Mode via Decky Loader.
+**Steam Deck automation, driven entirely from Game Mode.** Docky is a
+[Decky Loader](https://decky.xyz/) plugin that runs **Actions** when something
+happens — you dock, unplug AC, connect a controller, wake from sleep, or boot —
+and ships built-in fixes for the common docked-mode annoyances (audio not
+switching, the controller-order shuffle, the docked stretch/blur, performance).
+It also fully manages [Sunshine](https://github.com/LizardByte/Sunshine) game
+streaming.
+
+Everything is built and edited in the Quick Access panel — no config files, no
+Desktop Mode required.
 
 ```
 Task   — one atomic operation (a built-in fix, a file op, or run a script/binary)
 Action — an ordered list of Tasks
-Mode   — a named set of Actions, activated manually or by a trigger
+Mode   — a named set of Actions, activated manually or by a Trigger
+Trigger— an event (dock/undock, AC, controller, resume, startup) → a Mode
 ```
 
-Everything is built and edited **in the Quick Access panel** — open Docky, tap
-the **gear** to edit Actions, Modes, Favorites, Sunshine, and Triggers. Pin the
-actions/modes you use most as **Favorites** for one-tap access; stateful ones
-(e.g. force-composition) show a live on/off LED.
+---
 
-> The backend runs as **root** (`plugin.json` `flags: ["root"]`). Files created
-> by file-op tasks are chowned back to the owning directory's user, so
-> user-space stays able to read/edit them.
+## Highlights
 
-## Triggers
-
-Docky can run a Mode automatically on any of these (toggle each in the panel's
-**Triggers** section, map each to a Mode in **gear → Triggers**):
-
-| Trigger | Fires on |
-|---|---|
-| **Dock / undock** | external display / dock connect change |
-| **AC power** | charger connect / disconnect |
-| **External controller** | a real controller connects / disconnects |
-| **Resume** | the Deck wakes from sleep (re-apply a Mode) |
-| **Startup** | Docky loads at boot |
-
-Dock detection is configurable (require an external display, AC power, and/or a
-USB hub). Enabling a trigger baselines the current state and only acts on the
-*next* change.
-
-## Task types
-
-Built-in **dock fixes** (from the Quick-Access editor's "Docky built-in task"
-picker):
-
-| type | does |
-|---|---|
-| `audio_output` | switch the default audio sink (HDMI / speakers / headphones) |
-| `builtin_controller` | enable / disable / toggle the built-in controller (so an external pad owns P1 when docked) |
-| `tdp` | set the APU power cap in watts (docked vs handheld performance) |
-| `pcsx2_profile` | apply a PCSX2 input profile (skipped if PCSX2 is running during auto-dock) |
-| `flatpak_update` | update a Flatpak app (or all) from Game Mode |
-| `sunshine_start` / `sunshine_stop` / `sunshine_restart` | control Sunshine streaming |
-| `sunshine_composition` | force gamescope composition On / Off / Toggle (the docked-stretch fix) |
-| `sunshine_encoder` | set Sunshine's video encoder |
-
-Generic ops:
-
-| type | fields |
-|---|---|
-| `copy` / `move` | `src`, `dest` |
-| `symlink` | `target`, `link`, `replace?` |
-| `write` | `path`, `content`, `mode?` |
-| `delete` | `path`, `recursive?` |
-| `bash` / `python` | `script` **or** `path`, `args?`, `cwd?`, `timeout?` |
-| `run` | `argv` (list) **or** `command` (string, shell), `cwd?`, `timeout?` |
-
-Paths support `~` and `$VARS`. An Action runs its tasks in order; add
-`"continueOnError": true` to keep going past a failed task (default: stop).
-
-## Sunshine
-
-Docky can fully manage [Sunshine](https://github.com/LizardByte/Sunshine)
-streaming — install/update from Flathub, start/stop/restart, set the encoder,
-force composition, and pair/unpair/enable Moonlight clients — or defer to the
-**decky-sunshine** plugin. The **Sunshine engine** (gear → Sunshine) defaults to
-**Auto**:
-
-- **Auto** → uses decky-sunshine if it's installed, else the integrated engine
-  if the Sunshine flatpak is installed, else off (not set up).
-- **Integrated** — Docky owns install/launch/update.
-- **decky-sunshine** — defer lifecycle to that plugin; Docky's other Sunshine
-  tasks (stop, encoder, composition, pairing) still work on the shared Sunshine.
-- **Off** — Docky ignores Sunshine.
-
-## Config
-
-`~/.config/docky/config.json` holds your actions, modes, favorites, trigger
-mappings, and settings (created empty on first run — build it in the editor).
-`~/.config/docky/state.json` tracks the active mode and trigger baselines.
-Neither is touched by install/uninstall.
+- **Triggers** — run a Mode automatically on dock/undock, AC connect/disconnect,
+  external-controller connect/disconnect, resume-from-sleep, or startup.
+- **Built-in dock fixes** — switch audio output, disable the built-in controller
+  so an external pad is Player 1, force gamescope composition (the docked
+  stretch fix), and set the APU TDP — all as one-tap tasks.
+- **Favorites** — pin the actions/modes you use most to the panel; stateful ones
+  (like force-composition) show a live on/off LED.
+- **Sunshine** — install/update from Flathub, start/stop/restart, set the
+  encoder, force composition, and pair/manage Moonlight clients — or defer to the
+  `decky-sunshine` plugin (auto-detected).
+- **In-Game-Mode editor** — build Actions, Modes, Favorites, Triggers, and
+  Sunshine settings from the gear menu; nothing persists until you Save.
 
 ## Install
 
 ```bash
-cd docky          # wherever you cloned it
+git clone https://github.com/datbird/docky.git
+cd docky
 sudo ./install.sh
 ```
 
-Game Mode → Quick Access (•••) → Decky → **Docky**. Re-run `install.sh` to
-update; `uninstall.sh` to remove. The frontend bundle (`dist/index.js`) is
-committed, so a fresh clone needs no Node toolchain to install.
+Then: Game Mode → Quick Access (•••) → Decky → **Docky**. Re-run `install.sh` to
+update; `./uninstall.sh` to remove (your config is preserved). The frontend
+bundle (`dist/index.js`) is committed, so a fresh clone needs **no Node
+toolchain** to install. Decky Loader must already be installed.
+
+## Quick start — a docked/handheld setup
+
+1. Open Docky → **gear** (Settings) → **Modes** → **+ New mode**, name it
+   `Docked`. Repeat for `Handheld`.
+2. **Actions** → **+ New action** → add tasks, e.g. for `Docked`:
+   *Audio: HDMI*, *Controller: Off (external is P1)*, *Sunshine: force
+   composition → On*. Make a `Handheld` action with the inverse.
+3. Assign each action to its mode (Modes tab → toggle the action on).
+4. **Triggers** tab → set **When docked → `Docked`**, **When undocked →
+   `Handheld`**. **Save.**
+5. Back in the panel → **Triggers** section → turn on **Dock / undock**.
+
+Dock the Deck and the `Docked` mode runs automatically. Pin either mode as a
+**Favorite** for a one-tap manual switch.
+
+## Documentation
+
+| Guide | Covers |
+|---|---|
+| [Concepts](docs/concepts.md) | Tasks → Actions → Modes → Triggers → Favorites |
+| [Task reference](docs/tasks.md) | Every task type, its fields, and examples |
+| [Triggers](docs/triggers.md) | All triggers, dock detection, mode mapping |
+| [Sunshine](docs/sunshine.md) | Engine selection, install/update, pairing, encoder, composition |
+| [Configuration](docs/configuration.md) | `config.json` / `state.json` reference |
+| [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
+| [Development](docs/development.md) | Architecture, build/dev loop, deploy |
+
+## Permissions
+
+Docky's backend runs as **root** (`plugin.json` `flags: ["root"]`) — most of what
+it does (system services, protected paths, managing other processes, the
+streaming-capture helper) needs it. Files created by file-op tasks are chowned
+back to their parent directory's owner so user-space can still read/edit them.
+Script/command tasks therefore run as root; treat your config like a root cron.
+See [Configuration → Security](docs/configuration.md#security) for details.
+
+## Contributing
+
+Build and dev workflow are in [docs/development.md](docs/development.md); PR notes
+in [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs welcome.
+
+## License
+
+[MIT](LICENSE) © datbird
