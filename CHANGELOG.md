@@ -3,7 +3,7 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] — unreleased
+## [1.0.0] — 2026-06-24
 
 First public release. Docky evolved from a single-purpose "RetroDECK Pad
 Profiles" plugin into a general Steam Deck automation tool.
@@ -32,4 +32,4 @@ Profiles" plugin into a general Steam Deck automation tool.
   (`/var/lib/docky`).
 - Serialized state writes, subprocess timeouts, and corrupt-config recovery.
 
-[0.1.0]: https://github.com/datbird/docky
+[1.0.0]: https://github.com/datbird/docky/releases/tag/v1.0.0

@@ -1,11 +1,11 @@
 {
   "name": "Docky",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "author": "datbird",
   "flags": ["root"],
   "publish": {
     "tags": ["dock", "automation", "sunshine", "streaming", "triggers"],
     "description": "Steam Deck automation: run Tasks → Actions → Modes on triggers (dock/undock, AC power, controller connect, resume, startup). Built-in fixes for docked audio, controller order, composition/stretch, and TDP, plus full Sunshine streaming control (integrated or via decky-sunshine).",
-    "image": ""
+    "image": "https://raw.githubusercontent.com/datbird/docky/master/docs/images/logo-wordmark.png"
   }
 }

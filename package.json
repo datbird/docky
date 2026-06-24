@@ -1,6 +1,6 @@
 {
   "name": "docky",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Config-driven Steam Deck automation: Tasks -> Actions -> Modes with auto dock detection.",
   "author": "datbird",
   "license": "MIT",
