@@ -23,6 +23,27 @@ function DockIcon() {
   );
 }
 
+// The Docky brand mark (matches docs/images/icon.svg): a navy badge with a white
+// "dock" arch, a blue screen dot, and a blue dock cradle. Used as the plugin icon.
+function DockyLogo() {
+  return (
+    <svg width="1em" height="1em" viewBox="0 0 32 32">
+      <defs>
+        <linearGradient id="dockyBg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#222b39" />
+          <stop offset="1" stopColor="#171d27" />
+        </linearGradient>
+      </defs>
+      <rect x="2" y="2" width="28" height="28" rx="7.5" fill="url(#dockyBg)" />
+      <rect x="2.6" y="2.6" width="26.8" height="26.8" rx="7" fill="none" stroke="#3a4860" strokeWidth="0.9" />
+      <path d="M9.3 21.4 V11.5 Q9.3 7.3 13.7 7.3 H18.3 Q22.7 7.3 22.7 11.5 V21.4"
+            fill="none" stroke="#f1f4fa" strokeWidth="3.9" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="16" cy="16.1" r="2.8" fill="#5b7cf0" />
+      <path d="M6.6 19.7 Q16 23.3 25.4 19.7" fill="none" stroke="#5b7cf0" strokeWidth="2.9" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // Small on/off "LED" shown on buttons whose task carries a live boolean state.
 const StatusDot: VFC<{ on: boolean }> = ({ on }) => (
   <span
@@ -451,7 +472,7 @@ export default definePlugin((serverApi: ServerAPI) => {
   return {
     title: <div className="Title">Docky</div>,
     content: <Content />,
-    icon: <DockIcon />,
+    icon: <DockyLogo />,
     onDismount() {},
   };
 });

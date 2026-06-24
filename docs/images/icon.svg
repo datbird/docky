@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#222b39"/>
+      <stop offset="1" stop-color="#171d27"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="28" height="28" rx="7.5" fill="url(#bg)"/>
+  <rect x="2.6" y="2.6" width="26.8" height="26.8" rx="7" fill="none" stroke="#3a4860" stroke-width="0.9"/>
+  <!-- white dock arch (thick tombstone, open at the bottom) -->
+  <path d="M9.3 21.4 V11.5 Q9.3 7.3 13.7 7.3 H18.3 Q22.7 7.3 22.7 11.5 V21.4"
+        fill="none" stroke="#f1f4fa" stroke-width="3.9" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- screen dot in the dark interior -->
+  <circle cx="16" cy="16.1" r="2.8" fill="#5b7cf0"/>
+  <!-- dock cradle the arch sits into -->
+  <path d="M6.6 19.7 Q16 23.3 25.4 19.7"
+        fill="none" stroke="#5b7cf0" stroke-width="2.9" stroke-linecap="round"/>
+</svg>

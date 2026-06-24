@@ -1007,6 +1007,20 @@
         return (window.SP_REACT.createElement("svg", { width: "1em", height: "1em", viewBox: "0 0 24 24", fill: "currentColor" },
             window.SP_REACT.createElement("path", { d: "M4 5h16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-5v2h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2h2v-2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v7h16V7H4z" })));
     }
+    // The Docky brand mark (matches docs/images/icon.svg): a navy badge with a white
+    // "dock" arch, a blue screen dot, and a blue dock cradle. Used as the plugin icon.
+    function DockyLogo() {
+        return (window.SP_REACT.createElement("svg", { width: "1em", height: "1em", viewBox: "0 0 32 32" },
+            window.SP_REACT.createElement("defs", null,
+                window.SP_REACT.createElement("linearGradient", { id: "dockyBg", x1: "0", y1: "0", x2: "0", y2: "1" },
+                    window.SP_REACT.createElement("stop", { offset: "0", stopColor: "#222b39" }),
+                    window.SP_REACT.createElement("stop", { offset: "1", stopColor: "#171d27" }))),
+            window.SP_REACT.createElement("rect", { x: "2", y: "2", width: "28", height: "28", rx: "7.5", fill: "url(#dockyBg)" }),
+            window.SP_REACT.createElement("rect", { x: "2.6", y: "2.6", width: "26.8", height: "26.8", rx: "7", fill: "none", stroke: "#3a4860", strokeWidth: "0.9" }),
+            window.SP_REACT.createElement("path", { d: "M9.3 21.4 V11.5 Q9.3 7.3 13.7 7.3 H18.3 Q22.7 7.3 22.7 11.5 V21.4", fill: "none", stroke: "#f1f4fa", strokeWidth: "3.9", strokeLinecap: "round", strokeLinejoin: "round" }),
+            window.SP_REACT.createElement("circle", { cx: "16", cy: "16.1", r: "2.8", fill: "#5b7cf0" }),
+            window.SP_REACT.createElement("path", { d: "M6.6 19.7 Q16 23.3 25.4 19.7", fill: "none", stroke: "#5b7cf0", strokeWidth: "2.9", strokeLinecap: "round" })));
+    }
     // Small on/off "LED" shown on buttons whose task carries a live boolean state.
     const StatusDot = ({ on }) => (window.SP_REACT.createElement("span", { style: {
             display: "inline-block",
@@ -1253,7 +1267,7 @@
         return {
             title: window.SP_REACT.createElement("div", { className: "Title" }, "Docky"),
             content: window.SP_REACT.createElement(Content, null),
-            icon: window.SP_REACT.createElement(DockIcon, null),
+            icon: window.SP_REACT.createElement(DockyLogo, null),
             onDismount() { },
         };
     });

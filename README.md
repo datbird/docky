@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/logo-wordmark.png" alt="Docky" width="300">
+</p>
+
 # Docky
 
 **Steam Deck automation, driven entirely from Game Mode.** Docky is a
