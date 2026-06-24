@@ -23,6 +23,21 @@ function DockIcon() {
   );
 }
 
+// Small on/off "LED" shown on buttons whose task carries a live boolean state.
+const StatusDot: VFC<{ on: boolean }> = ({ on }) => (
+  <span
+    style={{
+      display: "inline-block",
+      width: "10px",
+      height: "10px",
+      borderRadius: "50%",
+      flexShrink: 0,
+      background: on ? "#52d669" : "#555",
+      boxShadow: on ? "0 0 6px #52d669" : "none",
+    }}
+  />
+);
+
 function InfoIcon() {
   return (
     <svg width="1.1em" height="1.1em" viewBox="0 0 24 24" fill="currentColor">
@@ -310,22 +325,34 @@ const Content: VFC = () => {
         {favorites.length ? (
           favorites.map((f) => {
             const isActive = f.kind === "mode" && f.id === state.activeMode;
+            const hasStatus = typeof f.status === "boolean";
             return (
               <PanelSectionRow key={"f_" + f.kind + "_" + f.id}>
                 <ButtonItem
                   layout="below"
                   disabled={busy || f.missing}
-                  description={f.kind === "mode" ? (isActive ? "Mode · active" : "Mode") : "Action"}
+                  description={
+                    hasStatus
+                      ? "Action · " + (f.status ? "on" : "off")
+                      : f.kind === "mode"
+                        ? isActive ? "Mode · active" : "Mode"
+                        : "Action"
+                  }
                   onClick={() =>
                     f.kind === "mode"
                       ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
                       : doCall("run_action", { action_id: f.id }, "Running " + f.name)
                   }
                 >
-                  {(isActive ? "✓ " : "★ ") +
-                    (f.kind === "mode" ? "" : "Run: ") +
-                    f.name +
-                    (f.missing ? " (missing)" : "")}
+                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    {hasStatus ? <StatusDot on={!!f.status} /> : null}
+                    <span>
+                      {(hasStatus ? "" : isActive ? "✓ " : "★ ") +
+                        (f.kind === "mode" ? "" : "Run: ") +
+                        f.name +
+                        (f.missing ? " (missing)" : "")}
+                    </span>
+                  </span>
                 </ButtonItem>
               </PanelSectionRow>
             );

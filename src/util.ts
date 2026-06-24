@@ -54,6 +54,9 @@ export interface StateFavorite {
   id: string;
   name: string;
   missing?: boolean;
+  // Live on/off state for action favorites whose action has a stateful task
+  // (e.g. force-composition). null/undefined when the item has no readable state.
+  status?: boolean | null;
 }
 export interface DockyState {
   docked?: boolean;

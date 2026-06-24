@@ -865,6 +865,16 @@
         return (window.SP_REACT.createElement("svg", { width: "1em", height: "1em", viewBox: "0 0 24 24", fill: "currentColor" },
             window.SP_REACT.createElement("path", { d: "M4 5h16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-5v2h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2h2v-2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v7h16V7H4z" })));
     }
+    // Small on/off "LED" shown on buttons whose task carries a live boolean state.
+    const StatusDot = ({ on }) => (window.SP_REACT.createElement("span", { style: {
+            display: "inline-block",
+            width: "10px",
+            height: "10px",
+            borderRadius: "50%",
+            flexShrink: 0,
+            background: on ? "#52d669" : "#555",
+            boxShadow: on ? "0 0 6px #52d669" : "none",
+        } }));
     function InfoIcon() {
         return (window.SP_REACT.createElement("svg", { width: "1.1em", height: "1.1em", viewBox: "0 0 24 24", fill: "currentColor" },
             window.SP_REACT.createElement("path", { d: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" })));
@@ -1030,13 +1040,21 @@
                                 : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null)))))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Favorites" }, favorites.length ? (favorites.map((f) => {
                 const isActive = f.kind === "mode" && f.id === state.activeMode;
+                const hasStatus = typeof f.status === "boolean";
                 return (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "f_" + f.kind + "_" + f.id },
-                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy || f.missing, description: f.kind === "mode" ? (isActive ? "Mode · active" : "Mode") : "Action", onClick: () => f.kind === "mode"
+                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy || f.missing, description: hasStatus
+                            ? "Action · " + (f.status ? "on" : "off")
+                            : f.kind === "mode"
+                                ? isActive ? "Mode · active" : "Mode"
+                                : "Action", onClick: () => f.kind === "mode"
                             ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
-                            : doCall("run_action", { action_id: f.id }, "Running " + f.name) }, (isActive ? "✓ " : "★ ") +
-                        (f.kind === "mode" ? "" : "Run: ") +
-                        f.name +
-                        (f.missing ? " (missing)" : ""))));
+                            : doCall("run_action", { action_id: f.id }, "Running " + f.name) },
+                        window.SP_REACT.createElement("span", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+                            hasStatus ? window.SP_REACT.createElement(StatusDot, { on: !!f.status }) : null,
+                            window.SP_REACT.createElement("span", null, (hasStatus ? "" : isActive ? "✓ " : "★ ") +
+                                (f.kind === "mode" ? "" : "Run: ") +
+                                f.name +
+                                (f.missing ? " (missing)" : ""))))));
             })) : (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                 window.SP_REACT.createElement("div", { style: { opacity: 0.7, padding: "0 4px" } }, "No favorites yet. Open Settings (gear) \u2192 Favorites to pin actions and modes here.")))),
             msg ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,

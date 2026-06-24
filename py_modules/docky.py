@@ -395,9 +395,29 @@ def suggested_mode(cfg=None):
     return s["dockedMode"] if is_docked(cfg) else s["undockedMode"]
 
 
+def _task_bool_status(task):
+    """Current on/off state of a stateful task, or None if it has no readable
+    state. Add a task type here to give it a live status LED on its buttons."""
+    t = task.get("type")
+    if t == "sunshine_composition":
+        return sunshine.get_composition()
+    return None
+
+
+def _action_status(action):
+    """A boolean status for an action, taken from its first stateful task
+    (or None if it has none)."""
+    for task in action.get("tasks", []):
+        s = _task_bool_status(task)
+        if s is not None:
+            return bool(s)
+    return None
+
+
 def _resolved_favorites(cfg):
     """Resolve config favorites into panel-ready entries with names, flagging
-    any whose referenced action/mode no longer exists."""
+    any whose referenced action/mode no longer exists. Action favorites also
+    carry a live on/off `status` when their action has a stateful task."""
     actions = cfg.get("actions", {})
     modes = cfg.get("modes", {})
     out = []
@@ -410,7 +430,9 @@ def _resolved_favorites(cfg):
             continue
         item = store.get(fid)
         name = item.get("name", fid) if item else fid
-        out.append({"kind": kind, "id": fid, "name": name, "missing": item is None})
+        status = _action_status(item) if (item and kind == "action") else None
+        out.append({"kind": kind, "id": fid, "name": name,
+                    "missing": item is None, "status": status})
     return out
 
 
