@@ -716,9 +716,22 @@
             const InfoRow = ({ label, value }) => (window.SP_REACT.createElement("div", { style: { display: "flex", justifyContent: "space-between", padding: "4px 0" } },
                 window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, label),
                 window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, value || "—")));
+            const engine = cfg.settings.sunshineEngine || "integrated";
+            const integrated = engine === "integrated";
+            const deckyInstalled = installedPlugins.indexOf("decky-sunshine") !== -1;
             return (window.SP_REACT.createElement("div", null,
                 window.SP_REACT.createElement("div", { style: { fontWeight: 700, margin: "2px 0 6px" } }, "Sunshine"),
-                window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.6, marginBottom: "10px" } }, "Docky installs Sunshine from Flathub (the official LizardByte build) and keeps it updated from there. It isn\u2019t installed until you enable it here."),
+                window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.6, marginBottom: "10px" } }, integrated
+                    ? "Docky owns Sunshine: installs it from Flathub, launches it, and keeps it updated."
+                    : "Lifecycle (install/launch/update) is left to the decky-sunshine plugin. Docky's other Sunshine tasks (stop, encoder, composition, pairing) still work on the shared Sunshine."),
+                window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Sunshine engine", rgOptions: [
+                        { data: "integrated", label: "Integrated (Docky)" },
+                        {
+                            data: "decky-sunshine",
+                            label: "decky-sunshine" + (deckyInstalled ? "" : " (not installed)"),
+                        },
+                    ], selectedOption: engine, onChange: (o) => mutate((n) => { n.settings.sunshineEngine = o.data; }) }),
+                !integrated && !deckyInstalled ? (window.SP_REACT.createElement("div", { style: { color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" } }, "decky-sunshine isn\u2019t installed \u2014 install it from the Decky store, or switch back to Integrated.")) : null,
                 !info ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, sunBusy ? "Checking…" : "—")) : (window.SP_REACT.createElement(window.SP_REACT.Fragment, null,
                     window.SP_REACT.createElement(InfoRow, { label: "Status", value: info.installed ? "Installed" : "Not installed" }),
                     window.SP_REACT.createElement(InfoRow, { label: "Current version", value: info.installedVersion }),
@@ -730,11 +743,14 @@
                             opacity: info.updateAvailable ? 1 : 0.6,
                         } }, info.updateAvailable ? "Update available" : "Up to date")) : null)),
                 window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px", marginTop: "10px" } },
-                    info && !info.installed ? (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: sunBusy, onClick: () => doSunshine("sunshine_install", "Installing") }, "Install & enable Sunshine")) : (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: sunBusy || !(info && info.updateAvailable), onClick: () => doSunshine("sunshine_update", "Updating") }, "Update Sunshine")),
+                    !integrated ? null : info && !info.installed ? (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: sunBusy, onClick: () => doSunshine("sunshine_install", "Installing") }, "Install & enable Sunshine")) : (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: sunBusy || !(info && info.updateAvailable), onClick: () => doSunshine("sunshine_update", "Updating") }, "Update Sunshine")),
                     window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: sunBusy, onClick: refreshSunshine }, "Refresh")),
+                !integrated ? (window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.6, marginTop: "6px" } }, "Install & updates are managed in decky-sunshine.")) : null,
                 sunMsg ? (window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.8, marginTop: "10px" } }, sunMsg)) : null,
                 window.SP_REACT.createElement("div", { style: { fontWeight: 700, margin: "14px 0 2px" } }, "Behavior"),
-                window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Start Sunshine at boot", description: "Launch Sunshine when Docky loads after a reboot", checked: cfg.settings.autostartSunshine !== false, disabled: busy, onChange: (on) => mutate((n) => { n.settings.autostartSunshine = on; }) })));
+                window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Start Sunshine at boot", description: integrated
+                        ? "Launch Sunshine when Docky loads after a reboot"
+                        : "Managed by decky-sunshine in this mode", checked: integrated && cfg.settings.autostartSunshine !== false, disabled: busy || !integrated, onChange: (on) => mutate((n) => { n.settings.autostartSunshine = on; }) })));
         }
         // ---- AUTO-DOCK TAB ----
         function renderAutoDock() {

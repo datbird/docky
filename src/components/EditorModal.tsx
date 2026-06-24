@@ -788,13 +788,36 @@ export const EditorModal: VFC<{
         <span style={{ fontWeight: 600 }}>{value || "—"}</span>
       </div>
     );
+    const engine = cfg.settings.sunshineEngine || "integrated";
+    const integrated = engine === "integrated";
+    const deckyInstalled = installedPlugins.indexOf("decky-sunshine") !== -1;
     return (
       <div>
         <div style={{ fontWeight: 700, margin: "2px 0 6px" }}>Sunshine</div>
         <div style={{ fontSize: "0.8em", opacity: 0.6, marginBottom: "10px" }}>
-          Docky installs Sunshine from Flathub (the official LizardByte build) and
-          keeps it updated from there. It isn’t installed until you enable it here.
+          {integrated
+            ? "Docky owns Sunshine: installs it from Flathub, launches it, and keeps it updated."
+            : "Lifecycle (install/launch/update) is left to the decky-sunshine plugin. Docky's other Sunshine tasks (stop, encoder, composition, pairing) still work on the shared Sunshine."}
         </div>
+
+        <DropdownItem
+          label="Sunshine engine"
+          rgOptions={[
+            { data: "integrated", label: "Integrated (Docky)" },
+            {
+              data: "decky-sunshine",
+              label: "decky-sunshine" + (deckyInstalled ? "" : " (not installed)"),
+            },
+          ]}
+          selectedOption={engine}
+          onChange={(o) => mutate((n) => { n.settings.sunshineEngine = o.data; })}
+        />
+        {!integrated && !deckyInstalled ? (
+          <div style={{ color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" }}>
+            decky-sunshine isn’t installed — install it from the Decky store, or
+            switch back to Integrated.
+          </div>
+        ) : null}
 
         {!info ? (
           <div style={{ opacity: 0.6 }}>{sunBusy ? "Checking…" : "—"}</div>
@@ -822,7 +845,7 @@ export const EditorModal: VFC<{
           flow-children="horizontal"
           style={{ display: "flex", gap: "8px", marginTop: "10px" }}
         >
-          {info && !info.installed ? (
+          {!integrated ? null : info && !info.installed ? (
             <DialogButton disabled={sunBusy} onClick={() => doSunshine("sunshine_install", "Installing")}>
               Install &amp; enable Sunshine
             </DialogButton>
@@ -838,6 +861,11 @@ export const EditorModal: VFC<{
             Refresh
           </DialogButton>
         </Focusable>
+        {!integrated ? (
+          <div style={{ fontSize: "0.8em", opacity: 0.6, marginTop: "6px" }}>
+            Install &amp; updates are managed in decky-sunshine.
+          </div>
+        ) : null}
         {sunMsg ? (
           <div style={{ fontSize: "0.8em", opacity: 0.8, marginTop: "10px" }}>{sunMsg}</div>
         ) : null}
@@ -845,9 +873,13 @@ export const EditorModal: VFC<{
         <div style={{ fontWeight: 700, margin: "14px 0 2px" }}>Behavior</div>
         <ToggleField
           label="Start Sunshine at boot"
-          description="Launch Sunshine when Docky loads after a reboot"
-          checked={cfg.settings.autostartSunshine !== false}
-          disabled={busy}
+          description={
+            integrated
+              ? "Launch Sunshine when Docky loads after a reboot"
+              : "Managed by decky-sunshine in this mode"
+          }
+          checked={integrated && cfg.settings.autostartSunshine !== false}
+          disabled={busy || !integrated}
           onChange={(on) => mutate((n) => { n.settings.autostartSunshine = on; })}
         />
       </div>

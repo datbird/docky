@@ -25,6 +25,7 @@ export interface Settings {
   requireAcPower?: boolean;
   requireUsbHub?: boolean;
   autostartSunshine?: boolean;
+  sunshineEngine?: string;
   // additional triggers
   autoAcDetection?: boolean;
   acMode?: string;
