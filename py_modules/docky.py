@@ -140,12 +140,32 @@ def _chown_to_parent(path):
 
 
 
+# Decky's plugin_loader is a PyInstaller binary; it injects its own bundled
+# libraries via LD_LIBRARY_PATH (a /tmp/_MEI… dir) and may set LD_PRELOAD. Those
+# leak into anything we shell out to — e.g. /usr/bin/bash then loads Decky's
+# incompatible libreadline and dies with "undefined symbol: rl_trim_arg_from_keyseq".
+# PyInstaller stashes the pre-injection value as <VAR>_ORIG; restore it if present,
+# otherwise drop the var so system binaries use system libraries.
+_PYI_VARS = ("LD_LIBRARY_PATH", "LD_PRELOAD", "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES")
+
+
+def _clean_env():
+    env = os.environ.copy()
+    for var in _PYI_VARS:
+        orig = env.get(var + "_ORIG")
+        if orig is not None:
+            env[var] = orig
+        else:
+            env.pop(var, None)
+    return env
+
+
 def _run_proc(argv, shell=False, cwd=None, timeout=DEFAULT_TIMEOUT, env=None):
     try:
         cp = subprocess.run(
             argv, shell=shell, cwd=_p(cwd) if cwd else os.path.expanduser("~"),
             capture_output=True, text=True, timeout=timeout,
-            env=env or os.environ.copy(),
+            env=env or _clean_env(),
         )
         out = (cp.stdout or "") + (cp.stderr or "")
         out = out.strip()
