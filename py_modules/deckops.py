@@ -220,6 +220,208 @@ def set_tdp(watts):
     return True, "TDP set to %dW" % (uw // 1_000_000)
 
 
+def get_tdp():
+    """Current APU power cap in whole watts plus the max settable, e.g.
+    {"watts": 15, "max": 28}. Empty dict if there's no amdgpu cap."""
+    cap = _amdgpu_cap()
+    if not cap:
+        return {}
+    out = {}
+    cur = _read_int(cap)
+    if cur is not None:
+        out["watts"] = int(round(cur / 1_000_000.0))
+    mx = _read_int(cap + "_max")
+    if mx is not None:
+        out["max"] = int(mx / 1_000_000)
+    return out
+
+
+def reset_tdp():
+    """Lift Docky's power cap by restoring it to the hardware max, handing TDP
+    back to SteamOS/Steam. Returns (ok, message)."""
+    cap = _amdgpu_cap()
+    if not cap:
+        return False, "no amdgpu power cap on this device"
+    mx = _read_int(cap + "_max")
+    if mx is None:
+        return False, "no power cap max to restore"
+    try:
+        with open(cap, "w") as f:
+            f.write(str(mx))
+    except OSError as e:
+        return False, "could not reset TDP: %s" % e
+    return True, "TDP reset to default (%dW)" % (mx // 1_000_000)
+
+
+# ---------------- Fan control + curve engine (steamdeck_hwmon) ----------------
+#
+# Replicates Fantastic's capability set without any of its code: a temperature->
+# RPM curve (with optional interpolation), manual fixed RPM, or hand back to
+# SteamOS. The Deck fan is driven by writing steamdeck_hwmon/fan1_target (RPM);
+# SteamOS's own jupiter-fan-control daemon rewrites that target every poll, so it
+# must be stopped before any value will stick and restarted to return to auto.
+
+# SteamOS's stock fan daemon.
+FAN_SERVICE = "jupiter-fan-control.service"
+# Sane ceiling for the Deck blower (OLED tops ~7300 RPM, LCD ~6300); clamp so a
+# fat-fingered value can't ask the EC for something absurd.
+FAN_MAX_RPM = 8000
+
+# Built-in starter curve: (temperature °C, target RPM). Gentle ramp that stays
+# quiet at idle and spins up under sustained load. Users edit this in the UI.
+DEFAULT_FAN_CURVE = [
+    {"temp": 45, "rpm": 0},
+    {"temp": 55, "rpm": 1800},
+    {"temp": 65, "rpm": 3200},
+    {"temp": 75, "rpm": 4800},
+    {"temp": 85, "rpm": 6500},
+]
+
+
+def _hwmon_named(name):
+    """Path of the hwmonN whose `name` matches, or None."""
+    for h in glob.glob("/sys/class/hwmon/hwmon*"):
+        try:
+            with open(os.path.join(h, "name")) as f:
+                if f.read().strip() == name:
+                    return h
+        except OSError:
+            continue
+    return None
+
+
+def _fan_target_path():
+    """Path to steamdeck_hwmon fan1_target (the RPM the EC aims for), or None."""
+    h = _hwmon_named("steamdeck_hwmon")
+    if h:
+        tgt = os.path.join(h, "fan1_target")
+        if os.path.exists(tgt):
+            return tgt
+    return None
+
+
+def _read_int(path):
+    try:
+        with open(path) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def read_fan_rpm():
+    """Current fan speed in RPM (fan1_input), or None."""
+    h = _hwmon_named("steamdeck_hwmon")
+    return _read_int(os.path.join(h, "fan1_input")) if h else None
+
+
+def read_fan_target():
+    """Current commanded fan target in RPM (fan1_target), or None."""
+    p = _fan_target_path()
+    return _read_int(p) if p else None
+
+
+def read_temp_c():
+    """APU temperature in whole °C used to drive the curve.
+
+    Prefer amdgpu's edge sensor (the APU die); fall back to the hottest
+    /sys/class/thermal zone. Returns an int °C, or None if nothing readable."""
+    h = _hwmon_named("amdgpu")
+    if h:
+        uc = _read_int(os.path.join(h, "temp1_input"))  # millidegrees C
+        if uc is not None:
+            return int(round(uc / 1000.0))
+    hottest = None
+    for z in glob.glob("/sys/class/thermal/thermal_zone*/temp"):
+        v = _read_int(z)
+        if v is not None:
+            c = v / 1000.0
+            hottest = c if hottest is None else max(hottest, c)
+    return int(round(hottest)) if hottest is not None else None
+
+
+def jupiter_fan_active():
+    """True if SteamOS's stock fan daemon is currently running."""
+    try:
+        r = subprocess.run(["systemctl", "is-active", FAN_SERVICE],
+                           capture_output=True, text=True, env=_clean_env(),
+                           timeout=10)
+        return r.stdout.strip() == "active"
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _fan_service(action):
+    """start/stop/restart the OS fan daemon; best-effort (absent on non-Deck)."""
+    try:
+        subprocess.run(["systemctl", action, FAN_SERVICE],
+                       capture_output=True, text=True, env=_clean_env(),
+                       timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def curve_rpm(temp_c, points, interpolate=True):
+    """Map a temperature to a target RPM using the curve `points`
+    (list of {temp, rpm}). Below/above the curve ends clamp to the end values.
+    Between points: linear interpolation, or the lower point's RPM if stepped.
+    Returns an int RPM clamped to [0, FAN_MAX_RPM], or None if no usable points."""
+    pts = []
+    for p in points or []:
+        try:
+            pts.append((float(p["temp"]), float(p["rpm"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not pts:
+        return None
+    pts.sort(key=lambda x: x[0])
+    if temp_c is None:
+        # No reading: be safe, hold the curve's top RPM.
+        rpm = pts[-1][1]
+    elif temp_c <= pts[0][0]:
+        rpm = pts[0][1]
+    elif temp_c >= pts[-1][0]:
+        rpm = pts[-1][1]
+    else:
+        rpm = pts[-1][1]
+        for (t0, r0), (t1, r1) in zip(pts, pts[1:]):
+            if t0 <= temp_c <= t1:
+                if interpolate and t1 != t0:
+                    rpm = r0 + (r1 - r0) * (temp_c - t0) / (t1 - t0)
+                else:
+                    rpm = r0
+                break
+    return max(0, min(FAN_MAX_RPM, int(round(rpm))))
+
+
+def write_fan_rpm(rpm):
+    """Hold a fixed fan target. Stops the stock daemon first (only if running, so
+    this is cheap to call repeatedly from the control loop). Returns (ok, msg)."""
+    try:
+        r = int(rpm)
+    except (ValueError, TypeError):
+        return False, "invalid fan RPM: %r" % (rpm,)
+    if r < 0:
+        return False, "fan RPM must be >= 0"
+    tgt = _fan_target_path()
+    if not tgt:
+        return False, "no steamdeck_hwmon fan on this device"
+    r = min(r, FAN_MAX_RPM)
+    if jupiter_fan_active():
+        _fan_service("stop")
+    try:
+        with open(tgt, "w") as f:
+            f.write(str(r))
+    except OSError as e:
+        return False, "could not set fan: %s" % e
+    return True, "fan target %d RPM" % r
+
+
+def restore_auto_fan():
+    """Hand the fan back to SteamOS (restart jupiter-fan-control)."""
+    _fan_service("restart")
+    return True, "fan returned to automatic control"
+
+
 # ---------------- flatpak maintenance ----------------
 
 def flatpak_update(app=""):

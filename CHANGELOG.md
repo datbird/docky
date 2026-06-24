@@ -3,6 +3,35 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-06-24
+
+### Added
+- **Fan control engine** (Fantastic-style, original implementation): temperature →
+  RPM **curve** with optional interpolation, **manual** fixed RPM, or **auto**
+  (SteamOS). A background loop enforces curve/manual and is resume-safe; it stops
+  `jupiter-fan-control` only while Docky owns the fan and hands it back on unload.
+- **TDP control** in the panel: set watts directly, plus an optional **"Keep
+  enforced"** toggle that re-applies the cap so Steam's slider can't override it.
+- **Fan and TDP profiles**: named presets, built in the editor's new **Fan** and
+  **TDP** tabs (curve editor with a live graph), applied from the panel, a task,
+  or a mode. New `fanProfile`/`tdpProfile` task fields reference them.
+- **"Hand control back to SteamOS"**: one panel button (and a `release_control`
+  task) that returns the fan to auto and lifts the TDP cap to default.
+- Panel gained collapsible **Fan** and **TDP** sections (live temp/RPM/watts
+  readouts, quick mode buttons, profile dropdowns), default collapsed.
+
+### Changed
+- The `fan` and `tdp` tasks now take a saved-profile selector (TDP keeps a
+  custom-watts fallback).
+
+### Fixed
+- Replaced DFL's `SliderField` with a gamepad-friendly stepper built only from
+  components guaranteed present in the runtime decky-frontend-lib global.
+
+### Notes
+- Requires Decky Loader **3.2.5+** (3.2.6 recommended) for the June 2026 Steam UI
+  update; older Decky mis-renders all plugin panels.
+
 ## [1.0.0] — 2026-06-24
 
 First public release. Docky evolved from a single-purpose "RetroDECK Pad
@@ -32,4 +61,5 @@ Profiles" plugin into a general Steam Deck automation tool.
   (`/var/lib/docky`).
 - Serialized state writes, subprocess timeouts, and corrupt-config recovery.
 
+[1.1.0]: https://github.com/datbird/docky/releases/tag/v1.1.0
 [1.0.0]: https://github.com/datbird/docky/releases/tag/v1.0.0

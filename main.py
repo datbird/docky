@@ -95,6 +95,53 @@ async def _trigger_watch():
         await asyncio.sleep(poll)
 
 
+async def _fan_watch():
+    # Enforce the fan curve / manual RPM. SteamOS's jupiter-fan-control rewrites
+    # fan1_target on its own poll and may restart on resume, so re-apply on a
+    # short cadence; fan_apply only stops the daemon when it's actually running.
+    # Module-level (NOT a Plugin method) — Decky's class wrapping breaks self.*.
+    owned = False
+    while True:
+        try:
+            cfg = docky.load_config()
+            mode = cfg["settings"].get("fanMode", "auto")
+            if mode in ("manual", "curve"):
+                await asyncio.to_thread(docky.fan_apply, cfg)
+                owned = True
+            elif owned:
+                # Just left manual/curve — give the fan back to SteamOS once.
+                await asyncio.to_thread(docky.fan_release)
+                owned = False
+        except asyncio.CancelledError:
+            # On unload, hand the fan back so we never leave it stuck (e.g. after
+            # an uninstall). Best-effort and synchronous — the loop is ending.
+            if owned:
+                try:
+                    docky.fan_release()
+                except Exception:  # noqa: BLE001
+                    pass
+            raise
+        except Exception:  # noqa: BLE001
+            decky.logger.exception("fan watch error")
+        await asyncio.sleep(2)
+
+
+async def _tdp_watch():
+    # Re-apply the configured TDP cap while enforcement is enabled, so Steam's own
+    # TDP slider can't override it. No-op when tdpEnforce is off. Module-level —
+    # Decky's class wrapping breaks self.method().
+    while True:
+        try:
+            cfg = docky.load_config()
+            if cfg["settings"].get("tdpEnforce"):
+                await asyncio.to_thread(docky.tdp_apply, cfg)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            decky.logger.exception("tdp watch error")
+        await asyncio.sleep(4)
+
+
 async def _startup_trigger():
     # Run the startup mode once on load (boot), if enabled. Off the event loop
     # since it may run blocking tasks.
@@ -125,6 +172,8 @@ class Plugin:
     _watch_task = None
     _autostart_task = None
     _startup_task = None
+    _fan_task = None
+    _tdp_task = None
 
     # ---- frontend-callable ----
 
@@ -265,6 +314,60 @@ class Plugin:
             decky.logger.exception("sunshine_set_client_enabled failed")
             return {"ok": False, "message": str(e)}
 
+    async def set_fan_mode(self, mode, rpm=None):
+        try:
+            res = await asyncio.to_thread(docky.set_fan_mode, mode, rpm)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("set_fan_mode failed")
+            return {"ok": False, "message": str(e)}
+
+    async def apply_fan_profile(self, profile_id):
+        try:
+            res = await asyncio.to_thread(docky.apply_fan_profile, profile_id)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("apply_fan_profile failed")
+            return {"ok": False, "message": str(e)}
+
+    async def set_tdp_watts(self, watts):
+        try:
+            res = await asyncio.to_thread(docky.set_tdp_watts, watts)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("set_tdp_watts failed")
+            return {"ok": False, "message": str(e)}
+
+    async def apply_tdp_profile(self, profile_id):
+        try:
+            res = await asyncio.to_thread(docky.apply_tdp_profile, profile_id)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("apply_tdp_profile failed")
+            return {"ok": False, "message": str(e)}
+
+    async def set_tdp_enforce(self, on):
+        try:
+            res = await asyncio.to_thread(docky.set_tdp_enforce, on)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("set_tdp_enforce failed")
+            return {"ok": False, "message": str(e)}
+
+    async def release_control(self):
+        try:
+            res = await asyncio.to_thread(docky.release_control)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("release_control failed")
+            return {"ok": False, "message": str(e)}
+
     async def get_config(self):
         try:
             return {"config": docky.load_config(), "path": docky.CONFIG_PATH}
@@ -286,10 +389,13 @@ class Plugin:
         self._watch_task = asyncio.create_task(_trigger_watch())
         self._autostart_task = asyncio.create_task(_autostart_sunshine())
         self._startup_task = asyncio.create_task(_startup_trigger())
+        self._fan_task = asyncio.create_task(_fan_watch())
+        self._tdp_task = asyncio.create_task(_tdp_watch())
         decky.logger.info("Docky loaded; config=%s", docky.CONFIG_PATH)
 
     async def _unload(self):
-        for task in (self._watch_task, self._autostart_task, self._startup_task):
+        for task in (self._watch_task, self._autostart_task, self._startup_task,
+                     self._fan_task, self._tdp_task):
             if task:
                 task.cancel()
         decky.logger.info("Docky unloaded")

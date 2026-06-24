@@ -37,6 +37,58 @@ export interface Settings {
   resumeMode?: string;
   autoStartup?: boolean;
   startupMode?: string;
+  // fan control (Fantastic-style curve engine)
+  fanMode?: "auto" | "manual" | "curve";
+  fanManualRpm?: number;
+  fanCurve?: FanCurve;
+  fanProfile?: string;
+  // TDP
+  tdpWatts?: number;
+  tdpEnforce?: boolean;
+  tdpProfile?: string;
+}
+export interface FanProfile {
+  name: string;
+  mode?: "auto" | "manual" | "curve";
+  manualRpm?: number;
+  curve?: FanCurve;
+}
+export interface TdpProfile {
+  name: string;
+  watts: number;
+}
+export interface CurvePoint {
+  temp: number;
+  rpm: number;
+}
+export interface FanCurve {
+  interpolate?: boolean;
+  points?: CurvePoint[];
+}
+export interface FanStatus {
+  mode?: "auto" | "manual" | "curve";
+  tempC?: number | null;
+  rpm?: number | null;
+  target?: number | null;
+  manualRpm?: number;
+  interpolate?: boolean;
+  points?: CurvePoint[];
+  available?: boolean;
+  maxRpm?: number;
+  profile?: string;
+}
+export interface TdpStatus {
+  watts?: number | null;
+  setWatts?: number;
+  max?: number;
+  enforce?: boolean;
+  profile?: string;
+  available?: boolean;
+}
+export interface ProfileRef {
+  id: string;
+  name: string;
+  watts?: number;
 }
 export interface Favorite {
   kind: "action" | "mode";
@@ -50,6 +102,9 @@ export interface Config {
   taskSettings?: Record<string, Record<string, string>>;
   // Ordered list of pinned actions/modes shown in the panel's Favorites section.
   favorites?: Favorite[];
+  // Saved fan/TDP presets, keyed by id.
+  fanProfiles?: Record<string, FanProfile>;
+  tdpProfiles?: Record<string, TdpProfile>;
 }
 
 export interface StateMode {
@@ -90,6 +145,10 @@ export interface DockyState {
     engine?: string;
     resolvedEngine?: string;
   };
+  fan?: FanStatus;
+  tdp?: TdpStatus;
+  fanProfiles?: ProfileRef[];
+  tdpProfiles?: ProfileRef[];
   error?: string;
 }
 

@@ -8,11 +8,15 @@ import {
   Focusable,
   showModal,
 } from "decky-frontend-lib";
-import { Config, Favorite, Task, call, clone, errText, nextTaskKey, slugify, stripTaskKeys, toast, uniqueId, withTaskKeys } from "../util";
+import { Config, CurvePoint, Favorite, Task, call, clone, errText, nextTaskKey, slugify, stripTaskKeys, toast, uniqueId, withTaskKeys } from "../util";
 import { BUILTIN_DEFS, GENERIC_DEFS, TaskField, TaskTypeDef, taskDef, summarizeTask } from "../taskdefs";
-import { Card, TextRow } from "./inputs";
+import { Card, TextRow, Stepper } from "./inputs";
+import { CurveEditor, sortPoints } from "./CurveEditor";
 
-type TabId = "actions" | "modes" | "favorites" | "sunshine" | "triggers";
+type TabId = "actions" | "modes" | "favorites" | "fan" | "tdp" | "sunshine" | "triggers";
+
+// Dropdown options for the saved-profile task fields.
+type ProfileOpts = { fan: { data: string; label: string }[]; tdp: { data: string; label: string }[] };
 
 interface SunshineInfo {
   installed: boolean;
@@ -78,12 +82,13 @@ const TaskSettingsModal: VFC<{
 // entry with its own sub-dropdown; generic ops are listed directly.
 const AddTask: VFC<{
   profiles: string[];
+  profileOpts: ProfileOpts;
   busy: boolean;
   onAdd: (t: Task) => void;
   taskSettings: Record<string, Record<string, string>>;
   onChangeTaskSetting: (type: string, key: string, value: string) => void;
   installedPlugins: string[];
-}> = ({ profiles, busy, onAdd, taskSettings, onChangeTaskSetting, installedPlugins }) => {
+}> = ({ profiles, profileOpts, busy, onAdd, taskSettings, onChangeTaskSetting, installedPlugins }) => {
   const pluginOk = (d: { requiresPlugin?: string }) =>
     !d.requiresPlugin || installedPlugins.indexOf(d.requiresPlugin) !== -1;
   const optLabel = (d: { label: string; requiresPlugin?: string }) =>
@@ -116,6 +121,10 @@ const AddTask: VFC<{
       } else if (f.kind === "select" && f.options && f.options.length) {
         // Untouched dropdown: persist the shown default (its first option).
         task[f.key] = f.options[0].data;
+      } else if (f.kind === "fanProfile" && profileOpts.fan[0]) {
+        task[f.key] = profileOpts.fan[0].data;
+      } else if (f.kind === "tdpProfile" && profileOpts.tdp[0]) {
+        task[f.key] = profileOpts.tdp[0].data;
       }
     });
     if (type === "pcsx2_profile" && !task.profile && profiles.length) task.profile = profiles[0];
@@ -154,8 +163,16 @@ const AddTask: VFC<{
         />
       );
     }
-    if (f.kind === "select") {
-      const opts = f.options || [];
+    if (f.kind === "select" || f.kind === "fanProfile" || f.kind === "tdpProfile") {
+      const opts =
+        f.kind === "fanProfile" ? profileOpts.fan : f.kind === "tdpProfile" ? profileOpts.tdp : f.options || [];
+      if (!opts.length) {
+        return (
+          <Field key={f.key} label={f.label}>
+            <span style={{ opacity: 0.7 }}>No profiles yet — make one in the Fan/TDP tab</span>
+          </Field>
+        );
+      }
       return (
         <DropdownItem
           key={f.key}
@@ -296,7 +313,8 @@ function renderTaskField(
   f: TaskField,
   value: any,
   onChange: (v: any) => void,
-  profiles: string[]
+  profiles: string[],
+  profileOpts: ProfileOpts
 ) {
   if (f.kind === "bool") {
     return (
@@ -321,8 +339,16 @@ function renderTaskField(
       />
     );
   }
-  if (f.kind === "select") {
-    const opts = f.options || [];
+  if (f.kind === "select" || f.kind === "fanProfile" || f.kind === "tdpProfile") {
+    const opts =
+      f.kind === "fanProfile" ? profileOpts.fan : f.kind === "tdpProfile" ? profileOpts.tdp : f.options || [];
+    if (!opts.length) {
+      return (
+        <Field key={f.key} label={f.label}>
+          <span style={{ opacity: 0.7 }}>No profiles yet</span>
+        </Field>
+      );
+    }
     return (
       <DropdownItem
         key={f.key}
@@ -390,17 +416,20 @@ const InfoRow: VFC<{ label: string; value: string }> = ({ label, value }) => (
 export const EditorModal: VFC<{
   closeModal?: () => void;
   initialConfig: Config;
+  initialTab?: TabId;
   profiles: string[];
   installedPlugins: string[];
   onSaved: (state: any) => void;
-}> = ({ closeModal, initialConfig, profiles, installedPlugins, onSaved }) => {
+}> = ({ closeModal, initialConfig, initialTab, profiles, installedPlugins, onSaved }) => {
   const [cfg, setCfg] = useState<Config>(() => withTaskKeys(clone(initialConfig)));
   const [dirty, setDirty] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
   const [msg, setMsg] = useState<string>("");
-  const [tab, setTab] = useState<TabId>("actions");
+  const [tab, setTab] = useState<TabId>(initialTab || "actions");
   const [selAction, setSelAction] = useState<string | null>(null);
   const [selMode, setSelMode] = useState<string | null>(null);
+  const [selFan, setSelFan] = useState<string | null>(null);
+  const [selTdp, setSelTdp] = useState<string | null>(null);
 
   // Sunshine tab (live actions, not part of the config draft).
   const [sunInfo, setSunInfo] = useState<SunshineInfo | null>(null);
@@ -478,11 +507,22 @@ export const EditorModal: VFC<{
 
   const cfgActions = cfg.actions || {};
   const cfgModes = cfg.modes || {};
+  const cfgFanProfiles = cfg.fanProfiles || {};
+  const cfgTdpProfiles = cfg.tdpProfiles || {};
   const actionIds = Object.keys(cfgActions);
   const modeIds = Object.keys(cfgModes);
   const modeOpts = [{ data: "", label: "(none)" }].concat(
     modeIds.map((mid) => ({ data: mid, label: cfgModes[mid].name || mid }))
   );
+  // Options for the saved-profile task fields. Fan adds an explicit "auto".
+  const profileOpts: ProfileOpts = {
+    fan: [{ data: "auto", label: "Auto (SteamOS)" }].concat(
+      Object.keys(cfgFanProfiles).map((id) => ({ data: id, label: cfgFanProfiles[id].name || id }))
+    ),
+    tdp: Object.keys(cfgTdpProfiles).map((id) => ({ data: id, label: cfgTdpProfiles[id].name || id })),
+  };
+  const fanMax = 8000;
+  const tdpMax = 30;
 
   function newAction() {
     const next = clone(cfg);
@@ -548,7 +588,7 @@ export const EditorModal: VFC<{
                     <div style={{ fontSize: "0.78em", opacity: 0.6, marginBottom: "4px" }}>
                       {summarizeTask(task)}
                     </div>
-                    {fields.map((f) => renderTaskField(f, task[f.key], (v) => setField(f, v), profiles))}
+                    {fields.map((f) => renderTaskField(f, task[f.key], (v) => setField(f, v), profiles, profileOpts))}
                     <DialogButton
                       style={{ marginTop: "6px" }}
                       disabled={busy}
@@ -562,6 +602,7 @@ export const EditorModal: VFC<{
             )}
             <AddTask
               profiles={profiles}
+              profileOpts={profileOpts}
               busy={busy}
               onAdd={(task) =>
                 mutate((n) => {
@@ -1015,6 +1056,178 @@ export const EditorModal: VFC<{
     );
   }
 
+  // ---- FAN TAB (build/manage fan profiles) ----
+  function newFanProfile() {
+    const next = clone(cfg);
+    next.fanProfiles = next.fanProfiles || {};
+    const id = uniqueId(slugify("New fan profile"), next.fanProfiles);
+    next.fanProfiles[id] = {
+      name: "New fan profile",
+      mode: "curve",
+      manualRpm: 3000,
+      curve: {
+        interpolate: true,
+        points: [
+          { temp: 45, rpm: 0 },
+          { temp: 55, rpm: 1800 },
+          { temp: 65, rpm: 3200 },
+          { temp: 75, rpm: 4800 },
+          { temp: 85, rpm: 6500 },
+        ],
+      },
+    };
+    setCfg(next);
+    setDirty(true);
+    setSelFan(id);
+  }
+
+  function renderFan() {
+    if (selFan && cfgFanProfiles[selFan]) {
+      const id = selFan;
+      const prof = cfgFanProfiles[id];
+      const mode = prof.mode || "curve";
+      const curve = prof.curve || { interpolate: true, points: [] };
+      return (
+        <div>
+          <DialogButton onClick={() => setSelFan(null)} style={{ marginBottom: "8px" }}>
+            ‹ All fan profiles
+          </DialogButton>
+          <Card title={prof.name || id}>
+            <TextRow label="Name" value={prof.name} onChange={(v) => mutate((n) => { n.fanProfiles![id].name = v; })} />
+            <DropdownItem
+              label="Mode"
+              rgOptions={[
+                { data: "curve", label: "Curve (temperature → RPM)" },
+                { data: "manual", label: "Manual (fixed RPM)" },
+                { data: "auto", label: "Auto (SteamOS)" },
+              ]}
+              selectedOption={mode}
+              onChange={(o) => mutate((n) => { n.fanProfiles![id].mode = o.data as any; })}
+            />
+            {mode === "manual" ? (
+              <Stepper
+                label="Fan RPM"
+                value={prof.manualRpm ?? 3000}
+                min={0}
+                max={fanMax}
+                step={100}
+                coarse={1000}
+                disabled={busy}
+                onChange={(v) => mutate((n) => { n.fanProfiles![id].manualRpm = v; })}
+              />
+            ) : null}
+            {mode === "curve" ? (
+              <CurveEditor
+                points={(curve.points || []).map((p) => ({ temp: p.temp, rpm: p.rpm }))}
+                interpolate={curve.interpolate !== false}
+                maxRpm={fanMax}
+                busy={busy}
+                onPoints={(p: CurvePoint[]) => mutate((n) => { n.fanProfiles![id].curve = { interpolate: curve.interpolate !== false, points: sortPoints(p) }; })}
+                onInterpolate={(b) => mutate((n) => { n.fanProfiles![id].curve = { interpolate: b, points: curve.points || [] }; })}
+              />
+            ) : null}
+            {mode === "auto" ? (
+              <div style={{ opacity: 0.7, fontSize: "0.85em", margin: "4px 0" }}>
+                Applying this profile hands the fan back to SteamOS.
+              </div>
+            ) : null}
+            <div style={{ marginTop: "10px" }}>
+              <DialogButton
+                disabled={busy}
+                onClick={() => { mutate((n) => { delete n.fanProfiles![id]; }); setSelFan(null); }}
+              >
+                Delete profile
+              </DialogButton>
+            </div>
+          </Card>
+        </div>
+      );
+    }
+    const ids = Object.keys(cfgFanProfiles);
+    return (
+      <div>
+        <DialogButton onClick={newFanProfile} disabled={busy} style={{ marginBottom: "10px" }}>
+          + New fan profile
+        </DialogButton>
+        {ids.length === 0 ? (
+          <div style={{ opacity: 0.6 }}>
+            No fan profiles yet. Create curves/manual presets here, then apply them from the panel,
+            a task, or a mode.
+          </div>
+        ) : (
+          ids.map((id) => (
+            <ListRow key={id} label={cfgFanProfiles[id].name || id} sub={cfgFanProfiles[id].mode || "curve"} onClick={() => setSelFan(id)} />
+          ))
+        )}
+      </div>
+    );
+  }
+
+  // ---- TDP TAB (build/manage TDP profiles) ----
+  function newTdpProfile() {
+    const next = clone(cfg);
+    next.tdpProfiles = next.tdpProfiles || {};
+    const id = uniqueId(slugify("New TDP profile"), next.tdpProfiles);
+    next.tdpProfiles[id] = { name: "New TDP profile", watts: 15 };
+    setCfg(next);
+    setDirty(true);
+    setSelTdp(id);
+  }
+
+  function renderTdp() {
+    if (selTdp && cfgTdpProfiles[selTdp]) {
+      const id = selTdp;
+      const prof = cfgTdpProfiles[id];
+      return (
+        <div>
+          <DialogButton onClick={() => setSelTdp(null)} style={{ marginBottom: "8px" }}>
+            ‹ All TDP profiles
+          </DialogButton>
+          <Card title={prof.name || id}>
+            <TextRow label="Name" value={prof.name} onChange={(v) => mutate((n) => { n.tdpProfiles![id].name = v; })} />
+            <Stepper
+              label="TDP (watts)"
+              value={prof.watts ?? 15}
+              min={3}
+              max={tdpMax}
+              step={1}
+              unit="W"
+              disabled={busy}
+              onChange={(v) => mutate((n) => { n.tdpProfiles![id].watts = v; })}
+            />
+            <div style={{ fontSize: "0.7em", opacity: 0.6, margin: "2px 0 8px" }}>
+              The slider goes to {tdpMax}W; an unlocked BIOS is required to exceed the stock 15W cap.
+            </div>
+            <DialogButton
+              disabled={busy}
+              onClick={() => { mutate((n) => { delete n.tdpProfiles![id]; }); setSelTdp(null); }}
+            >
+              Delete profile
+            </DialogButton>
+          </Card>
+        </div>
+      );
+    }
+    const ids = Object.keys(cfgTdpProfiles);
+    return (
+      <div>
+        <DialogButton onClick={newTdpProfile} disabled={busy} style={{ marginBottom: "10px" }}>
+          + New TDP profile
+        </DialogButton>
+        {ids.length === 0 ? (
+          <div style={{ opacity: 0.6 }}>
+            No TDP profiles yet. Create wattage presets here, then apply them from the panel, a task,
+            or a mode.
+          </div>
+        ) : (
+          ids.map((id) => (
+            <ListRow key={id} label={cfgTdpProfiles[id].name || id} sub={(cfgTdpProfiles[id].watts ?? "?") + "W"} onClick={() => setSelTdp(id)} />
+          ))
+        )}
+      </div>
+    );
+  }
+
   return (
     <ModalRoot onCancel={closeModal} onEscKeypress={closeModal}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
@@ -1039,6 +1252,8 @@ export const EditorModal: VFC<{
         <TabButton active={tab === "actions"} label="Actions" onClick={() => setTab("actions")} />
         <TabButton active={tab === "modes"} label="Modes" onClick={() => setTab("modes")} />
         <TabButton active={tab === "favorites"} label="Favorites" onClick={() => setTab("favorites")} />
+        <TabButton active={tab === "fan"} label="Fan" onClick={() => setTab("fan")} />
+        <TabButton active={tab === "tdp"} label="TDP" onClick={() => setTab("tdp")} />
         <TabButton active={tab === "sunshine"} label="Sunshine" onClick={() => setTab("sunshine")} />
         <TabButton active={tab === "triggers"} label="Triggers" onClick={() => setTab("triggers")} />
       </Focusable>
@@ -1048,6 +1263,8 @@ export const EditorModal: VFC<{
         {tab === "actions" ? renderActions() : null}
         {tab === "modes" ? renderModes() : null}
         {tab === "favorites" ? renderFavorites() : null}
+        {tab === "fan" ? renderFan() : null}
+        {tab === "tdp" ? renderTdp() : null}
         {tab === "sunshine" ? renderSunshine() : null}
         {tab === "triggers" ? renderAutoDock() : null}
       </div>

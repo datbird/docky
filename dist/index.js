@@ -88,6 +88,39 @@
         return "Done — " + tasks.length + " task" + (tasks.length === 1 ? "" : "s") + " OK";
     }
 
+    // A bordered card wrapping one editable Action or Mode.
+    const Card = ({ title, children }) => (window.SP_REACT.createElement("div", { style: {
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: "6px",
+            padding: "8px 12px",
+            marginBottom: "10px",
+            background: "rgba(255,255,255,0.03)",
+        } },
+        window.SP_REACT.createElement("div", { style: { fontWeight: 600, marginBottom: "4px" } }, title),
+        children));
+    const TextRow = (props) => {
+        const extra = props.password ? { bIsPassword: true } : {};
+        return (window.SP_REACT.createElement(deckyFrontendLib.Field, { label: props.label, childrenLayout: "below", bottomSeparator: "none" },
+            window.SP_REACT.createElement(deckyFrontendLib.TextField, { ...extra, value: props.value || "", onChange: (e) => props.onChange(e.target.value) })));
+    };
+    // A numeric stepper built only from DialogButton/Field/Focusable (all present in
+    // the runtime decky-frontend-lib global). Used instead of DFL's SliderField,
+    // which isn't exposed by the injected DFL global (rendering it crashes the panel
+    // with React #130). Optional `coarse` adds «/» buttons for big jumps.
+    const Stepper = ({ label, value, min, max, step, coarse, unit, disabled, onChange }) => {
+        const clamp = (v) => Math.max(min, Math.min(max, v));
+        const Btn = ({ delta, txt }) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: disabled || (delta < 0 ? value <= min : value >= max), onClick: () => onChange(clamp(value + delta)), style: { minWidth: 0, flex: 1, padding: "6px 4px", textAlign: "center" } }, txt));
+        return (window.SP_REACT.createElement(deckyFrontendLib.Field, { label: label, childrenLayout: "below", bottomSeparator: "none" },
+            window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "6px", alignItems: "center" } },
+                coarse ? window.SP_REACT.createElement(Btn, { delta: -coarse, txt: "\u00AB" }) : null,
+                window.SP_REACT.createElement(Btn, { delta: -step, txt: "\u2212" }),
+                window.SP_REACT.createElement("div", { style: { flex: 1.6, textAlign: "center", fontWeight: 600 } },
+                    value,
+                    unit || ""),
+                window.SP_REACT.createElement(Btn, { delta: step, txt: "+" }),
+                coarse ? window.SP_REACT.createElement(Btn, { delta: coarse, txt: "\u00BB" }) : null)));
+    };
+
     // Built-in task types. The PCSX2 controller-profile task is the marquee one;
     // the rest are generic file/script ops. `fields` drives the add-task form.
     const TASK_DEFS = [
@@ -207,8 +240,27 @@
             type: "tdp",
             label: "Performance: set TDP watts (docked power)",
             builtin: true,
-            fields: [{ key: "watts", kind: "text", label: "TDP (watts, e.g. 15)" }],
-            summary: (t) => "TDP: " + (t.watts ? t.watts + "W" : "?"),
+            fields: [
+                { key: "profile", kind: "tdpProfile", label: "TDP profile" },
+                { key: "watts", kind: "text", label: "…or custom watts (e.g. 15)" },
+            ],
+            summary: (t) => t.profile
+                ? "TDP profile: " + t.profile
+                : "TDP: " + (t.watts ? t.watts + "W" : "?"),
+        },
+        {
+            type: "fan",
+            label: "Performance: fan control (profile / manual / auto)",
+            builtin: true,
+            fields: [{ key: "profile", kind: "fanProfile", label: "Fan profile" }],
+            summary: (t) => "Fan: " + (t.profile || "auto"),
+        },
+        {
+            type: "release_control",
+            label: "Performance: hand control back to SteamOS (fan + TDP defaults)",
+            builtin: true,
+            fields: [],
+            summary: () => "Release control to SteamOS",
         },
         {
             type: "flatpak_update",
@@ -312,20 +364,63 @@
         }
     }
 
-    // A bordered card wrapping one editable Action or Mode.
-    const Card = ({ title, children }) => (window.SP_REACT.createElement("div", { style: {
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: "6px",
-            padding: "8px 12px",
-            marginBottom: "10px",
-            background: "rgba(255,255,255,0.03)",
-        } },
-        window.SP_REACT.createElement("div", { style: { fontWeight: 600, marginBottom: "4px" } }, title),
-        children));
-    const TextRow = (props) => {
-        const extra = props.password ? { bIsPassword: true } : {};
-        return (window.SP_REACT.createElement(deckyFrontendLib.Field, { label: props.label, childrenLayout: "below", bottomSeparator: "none" },
-            window.SP_REACT.createElement(deckyFrontendLib.TextField, { ...extra, value: props.value || "", onChange: (e) => props.onChange(e.target.value) })));
+    // Temperature axis bounds for the graph / sliders.
+    const T_MIN = 30;
+    const T_MAX = 95;
+    function sortPoints(pts) {
+        return [...pts].sort((a, b) => a.temp - b.temp);
+    }
+    // Read-only SVG plot of the curve with an optional live marker at the current
+    // temperature (green dashed line).
+    const CurveGraph = ({ points, maxRpm, tempC, }) => {
+        const W = 300;
+        const H = 130;
+        const padL = 4, padR = 4, padT = 6, padB = 6;
+        const x = (t) => padL + ((t - T_MIN) / (T_MAX - T_MIN)) * (W - padL - padR);
+        const y = (r) => padT + (1 - r / maxRpm) * (H - padT - padB);
+        const pts = sortPoints(points);
+        const line = pts.map((p) => `${x(p.temp).toFixed(1)},${y(p.rpm).toFixed(1)}`).join(" ");
+        const haveTemp = typeof tempC === "number";
+        return (window.SP_REACT.createElement("svg", { width: "100%", viewBox: `0 0 ${W} ${H}`, style: { background: "rgba(255,255,255,0.04)", borderRadius: "6px" } },
+            [0.25, 0.5, 0.75].map((g) => (window.SP_REACT.createElement("line", { key: g, x1: padL, x2: W - padR, y1: padT + g * (H - padT - padB), y2: padT + g * (H - padT - padB), stroke: "rgba(255,255,255,0.08)", strokeWidth: "1" }))),
+            pts.length >= 2 ? (window.SP_REACT.createElement("polyline", { points: line, fill: "none", stroke: "#5b7cf0", strokeWidth: "2.5", strokeLinejoin: "round", strokeLinecap: "round" })) : null,
+            pts.map((p, i) => (window.SP_REACT.createElement("circle", { key: i, cx: x(p.temp), cy: y(p.rpm), r: "3.5", fill: "#f1f4fa" }))),
+            haveTemp ? (window.SP_REACT.createElement("line", { x1: x(tempC), x2: x(tempC), y1: padT, y2: H - padB, stroke: "#52d669", strokeWidth: "1.5", strokeDasharray: "3 3" })) : null));
+    };
+    // Controlled editor for a fan curve: graph + interpolate toggle + per-point
+    // temperature/RPM sliders with add/remove. Used for the live active curve and
+    // for each saved profile.
+    const CurveEditor = ({ points, interpolate, maxRpm, tempC, busy, onPoints, onInterpolate }) => {
+        function setPoint(i, key, val) {
+            onPoints(points.map((p, j) => (j === i ? { ...p, [key]: val } : p)));
+        }
+        function removePoint(i) {
+            onPoints(points.filter((_, j) => j !== i));
+        }
+        function addPoint() {
+            const sorted = sortPoints(points);
+            const last = sorted[sorted.length - 1];
+            const temp = last ? Math.min(T_MAX, last.temp + 10) : 60;
+            const rpm = last ? Math.min(maxRpm, last.rpm + 1000) : 3000;
+            onPoints([...points, { temp, rpm }]);
+        }
+        return (window.SP_REACT.createElement("div", null,
+            window.SP_REACT.createElement(CurveGraph, { points: points, maxRpm: maxRpm, tempC: tempC }),
+            window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Smooth (interpolate between points)", checked: interpolate, onChange: onInterpolate }),
+            window.SP_REACT.createElement("div", { style: { fontWeight: 600, margin: "8px 0 2px" } }, "Curve points"),
+            points.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6, margin: "4px 0" } }, "No points yet \u2014 add at least two.")) : null,
+            points.map((p, i) => (window.SP_REACT.createElement("div", { key: i, style: {
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: "6px",
+                    padding: "6px 10px",
+                    marginBottom: "8px",
+                    background: "rgba(255,255,255,0.03)",
+                } },
+                window.SP_REACT.createElement(Stepper, { label: "Temperature \u00B0C", value: p.temp, min: T_MIN, max: T_MAX, step: 1, coarse: 5, unit: "\u00B0C", disabled: busy, onChange: (v) => setPoint(i, "temp", v) }),
+                window.SP_REACT.createElement(Stepper, { label: "Fan RPM", value: p.rpm, min: 0, max: maxRpm, step: 100, coarse: 1000, disabled: busy, onChange: (v) => setPoint(i, "rpm", v) }),
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { style: { marginTop: "4px" }, disabled: busy, onClick: () => removePoint(i) }, "Remove point")))),
+            window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px", marginTop: "4px" } },
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: addPoint }, "+ Add point"))));
     };
 
     // Sentinel for the top-level dropdown entry that groups the curated Docky tasks.
@@ -357,7 +452,7 @@
     // Add-task form for one action: pick a type, fill its fields, append.
     // Curated Docky tasks (e.g. PCSX2 profile) live behind a "Docky built-in task"
     // entry with its own sub-dropdown; generic ops are listed directly.
-    const AddTask = ({ profiles, busy, onAdd, taskSettings, onChangeTaskSetting, installedPlugins }) => {
+    const AddTask = ({ profiles, profileOpts, busy, onAdd, taskSettings, onChangeTaskSetting, installedPlugins }) => {
         const pluginOk = (d) => !d.requiresPlugin || installedPlugins.indexOf(d.requiresPlugin) !== -1;
         const optLabel = (d) => pluginOk(d) ? d.label : d.label + ` (needs ${d.requiresPlugin})`;
         const hasBuiltins = BUILTIN_DEFS.length > 0;
@@ -384,6 +479,12 @@
                     // Untouched dropdown: persist the shown default (its first option).
                     task[f.key] = f.options[0].data;
                 }
+                else if (f.kind === "fanProfile" && profileOpts.fan[0]) {
+                    task[f.key] = profileOpts.fan[0].data;
+                }
+                else if (f.kind === "tdpProfile" && profileOpts.tdp[0]) {
+                    task[f.key] = profileOpts.tdp[0].data;
+                }
             });
             if (type === "pcsx2_profile" && !task.profile && profiles.length)
                 task.profile = profiles[0];
@@ -402,8 +503,12 @@
                 }
                 return (window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { key: f.key, label: f.label, rgOptions: profiles.map((p) => ({ data: p, label: p })), selectedOption: vals[f.key] || profiles[0], onChange: (o) => setField(f.key, o.data) }));
             }
-            if (f.kind === "select") {
-                const opts = f.options || [];
+            if (f.kind === "select" || f.kind === "fanProfile" || f.kind === "tdpProfile") {
+                const opts = f.kind === "fanProfile" ? profileOpts.fan : f.kind === "tdpProfile" ? profileOpts.tdp : f.options || [];
+                if (!opts.length) {
+                    return (window.SP_REACT.createElement(deckyFrontendLib.Field, { key: f.key, label: f.label },
+                        window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, "No profiles yet \u2014 make one in the Fan/TDP tab")));
+                }
                 return (window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { key: f.key, label: f.label, rgOptions: opts, selectedOption: vals[f.key] ?? (opts[0] ? opts[0].data : ""), onChange: (o) => setField(f.key, o.data) }));
             }
             return (window.SP_REACT.createElement(TextRow, { key: f.key, label: f.label, value: vals[f.key], onChange: (val) => setField(f.key, val) }));
@@ -462,7 +567,7 @@
         window.SP_REACT.createElement("span", { style: { opacity: 0.6, fontSize: "0.85em" } }, sub ? sub + " ›" : "›")));
     // Render a single task field bound to `value`, calling onChange with the new
     // value. Used to edit a task already in an action (bool/select/profile/text).
-    function renderTaskField(f, value, onChange, profiles) {
+    function renderTaskField(f, value, onChange, profiles, profileOpts) {
         if (f.kind === "bool") {
             return (window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { key: f.key, label: f.label, checked: !!value, onChange: (v) => onChange(v) }));
         }
@@ -473,8 +578,12 @@
             }
             return (window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { key: f.key, label: f.label, rgOptions: profiles.map((p) => ({ data: p, label: p })), selectedOption: value || profiles[0], onChange: (o) => onChange(o.data) }));
         }
-        if (f.kind === "select") {
-            const opts = f.options || [];
+        if (f.kind === "select" || f.kind === "fanProfile" || f.kind === "tdpProfile") {
+            const opts = f.kind === "fanProfile" ? profileOpts.fan : f.kind === "tdpProfile" ? profileOpts.tdp : f.options || [];
+            if (!opts.length) {
+                return (window.SP_REACT.createElement(deckyFrontendLib.Field, { key: f.key, label: f.label },
+                    window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, "No profiles yet")));
+            }
             return (window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { key: f.key, label: f.label, rgOptions: opts, selectedOption: value ?? (opts[0] ? opts[0].data : ""), onChange: (o) => onChange(o.data) }));
         }
         return window.SP_REACT.createElement(TextRow, { key: f.key, label: f.label, value: value ?? "", onChange: (v) => onChange(v) });
@@ -496,14 +605,16 @@
     const InfoRow = ({ label, value }) => (window.SP_REACT.createElement("div", { style: { display: "flex", justifyContent: "space-between", padding: "4px 0" } },
         window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, label),
         window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, value || "—")));
-    const EditorModal = ({ closeModal, initialConfig, profiles, installedPlugins, onSaved }) => {
+    const EditorModal = ({ closeModal, initialConfig, initialTab, profiles, installedPlugins, onSaved }) => {
         const [cfg, setCfg] = react.useState(() => withTaskKeys(clone(initialConfig)));
         const [dirty, setDirty] = react.useState(false);
         const [busy, setBusy] = react.useState(false);
         const [msg, setMsg] = react.useState("");
-        const [tab, setTab] = react.useState("actions");
+        const [tab, setTab] = react.useState(initialTab || "actions");
         const [selAction, setSelAction] = react.useState(null);
         const [selMode, setSelMode] = react.useState(null);
+        const [selFan, setSelFan] = react.useState(null);
+        const [selTdp, setSelTdp] = react.useState(null);
         // Sunshine tab (live actions, not part of the config draft).
         const [sunInfo, setSunInfo] = react.useState(null);
         const [sunBusy, setSunBusy] = react.useState(false);
@@ -579,9 +690,18 @@
         }
         const cfgActions = cfg.actions || {};
         const cfgModes = cfg.modes || {};
+        const cfgFanProfiles = cfg.fanProfiles || {};
+        const cfgTdpProfiles = cfg.tdpProfiles || {};
         const actionIds = Object.keys(cfgActions);
         const modeIds = Object.keys(cfgModes);
         const modeOpts = [{ data: "", label: "(none)" }].concat(modeIds.map((mid) => ({ data: mid, label: cfgModes[mid].name || mid })));
+        // Options for the saved-profile task fields. Fan adds an explicit "auto".
+        const profileOpts = {
+            fan: [{ data: "auto", label: "Auto (SteamOS)" }].concat(Object.keys(cfgFanProfiles).map((id) => ({ data: id, label: cfgFanProfiles[id].name || id }))),
+            tdp: Object.keys(cfgTdpProfiles).map((id) => ({ data: id, label: cfgTdpProfiles[id].name || id })),
+        };
+        const fanMax = 8000;
+        const tdpMax = 30;
         function newAction() {
             const next = clone(cfg);
             next.actions = next.actions || {};
@@ -634,10 +754,10 @@
                             });
                             return (window.SP_REACT.createElement(Card, { key: task.__key || ti, title: d ? d.label : task.type },
                                 window.SP_REACT.createElement("div", { style: { fontSize: "0.78em", opacity: 0.6, marginBottom: "4px" } }, summarizeTask(task)),
-                                fields.map((f) => renderTaskField(f, task[f.key], (v) => setField(f, v), profiles)),
+                                fields.map((f) => renderTaskField(f, task[f.key], (v) => setField(f, v), profiles, profileOpts)),
                                 window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { style: { marginTop: "6px" }, disabled: busy, onClick: () => mutate((n) => { n.actions[aid].tasks.splice(ti, 1); }) }, "Remove task")));
                         })),
-                        window.SP_REACT.createElement(AddTask, { profiles: profiles, busy: busy, onAdd: (task) => mutate((n) => {
+                        window.SP_REACT.createElement(AddTask, { profiles: profiles, profileOpts: profileOpts, busy: busy, onAdd: (task) => mutate((n) => {
                                 n.actions[aid].tasks = n.actions[aid].tasks || [];
                                 n.actions[aid].tasks.push(task);
                             }), taskSettings: cfg.taskSettings || {}, onChangeTaskSetting: (type, key, value) => mutate((n) => {
@@ -823,6 +943,86 @@
                     }) }),
                 window.SP_REACT.createElement("div", { style: { fontSize: "0.7em", opacity: 0.6, marginTop: "6px" } }, "Enable each trigger from the panel's Triggers section; map it to a mode here.")));
         }
+        // ---- FAN TAB (build/manage fan profiles) ----
+        function newFanProfile() {
+            const next = clone(cfg);
+            next.fanProfiles = next.fanProfiles || {};
+            const id = uniqueId(slugify("New fan profile"), next.fanProfiles);
+            next.fanProfiles[id] = {
+                name: "New fan profile",
+                mode: "curve",
+                manualRpm: 3000,
+                curve: {
+                    interpolate: true,
+                    points: [
+                        { temp: 45, rpm: 0 },
+                        { temp: 55, rpm: 1800 },
+                        { temp: 65, rpm: 3200 },
+                        { temp: 75, rpm: 4800 },
+                        { temp: 85, rpm: 6500 },
+                    ],
+                },
+            };
+            setCfg(next);
+            setDirty(true);
+            setSelFan(id);
+        }
+        function renderFan() {
+            if (selFan && cfgFanProfiles[selFan]) {
+                const id = selFan;
+                const prof = cfgFanProfiles[id];
+                const mode = prof.mode || "curve";
+                const curve = prof.curve || { interpolate: true, points: [] };
+                return (window.SP_REACT.createElement("div", null,
+                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: () => setSelFan(null), style: { marginBottom: "8px" } }, "\u2039 All fan profiles"),
+                    window.SP_REACT.createElement(Card, { title: prof.name || id },
+                        window.SP_REACT.createElement(TextRow, { label: "Name", value: prof.name, onChange: (v) => mutate((n) => { n.fanProfiles[id].name = v; }) }),
+                        window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Mode", rgOptions: [
+                                { data: "curve", label: "Curve (temperature → RPM)" },
+                                { data: "manual", label: "Manual (fixed RPM)" },
+                                { data: "auto", label: "Auto (SteamOS)" },
+                            ], selectedOption: mode, onChange: (o) => mutate((n) => { n.fanProfiles[id].mode = o.data; }) }),
+                        mode === "manual" ? (window.SP_REACT.createElement(Stepper, { label: "Fan RPM", value: prof.manualRpm ?? 3000, min: 0, max: fanMax, step: 100, coarse: 1000, disabled: busy, onChange: (v) => mutate((n) => { n.fanProfiles[id].manualRpm = v; }) })) : null,
+                        mode === "curve" ? (window.SP_REACT.createElement(CurveEditor, { points: (curve.points || []).map((p) => ({ temp: p.temp, rpm: p.rpm })), interpolate: curve.interpolate !== false, maxRpm: fanMax, busy: busy, onPoints: (p) => mutate((n) => { n.fanProfiles[id].curve = { interpolate: curve.interpolate !== false, points: sortPoints(p) }; }), onInterpolate: (b) => mutate((n) => { n.fanProfiles[id].curve = { interpolate: b, points: curve.points || [] }; }) })) : null,
+                        mode === "auto" ? (window.SP_REACT.createElement("div", { style: { opacity: 0.7, fontSize: "0.85em", margin: "4px 0" } }, "Applying this profile hands the fan back to SteamOS.")) : null,
+                        window.SP_REACT.createElement("div", { style: { marginTop: "10px" } },
+                            window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => { mutate((n) => { delete n.fanProfiles[id]; }); setSelFan(null); } }, "Delete profile")))));
+            }
+            const ids = Object.keys(cfgFanProfiles);
+            return (window.SP_REACT.createElement("div", null,
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: newFanProfile, disabled: busy, style: { marginBottom: "10px" } }, "+ New fan profile"),
+                ids.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, "No fan profiles yet. Create curves/manual presets here, then apply them from the panel, a task, or a mode.")) : (ids.map((id) => (window.SP_REACT.createElement(ListRow, { key: id, label: cfgFanProfiles[id].name || id, sub: cfgFanProfiles[id].mode || "curve", onClick: () => setSelFan(id) }))))));
+        }
+        // ---- TDP TAB (build/manage TDP profiles) ----
+        function newTdpProfile() {
+            const next = clone(cfg);
+            next.tdpProfiles = next.tdpProfiles || {};
+            const id = uniqueId(slugify("New TDP profile"), next.tdpProfiles);
+            next.tdpProfiles[id] = { name: "New TDP profile", watts: 15 };
+            setCfg(next);
+            setDirty(true);
+            setSelTdp(id);
+        }
+        function renderTdp() {
+            if (selTdp && cfgTdpProfiles[selTdp]) {
+                const id = selTdp;
+                const prof = cfgTdpProfiles[id];
+                return (window.SP_REACT.createElement("div", null,
+                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: () => setSelTdp(null), style: { marginBottom: "8px" } }, "\u2039 All TDP profiles"),
+                    window.SP_REACT.createElement(Card, { title: prof.name || id },
+                        window.SP_REACT.createElement(TextRow, { label: "Name", value: prof.name, onChange: (v) => mutate((n) => { n.tdpProfiles[id].name = v; }) }),
+                        window.SP_REACT.createElement(Stepper, { label: "TDP (watts)", value: prof.watts ?? 15, min: 3, max: tdpMax, step: 1, unit: "W", disabled: busy, onChange: (v) => mutate((n) => { n.tdpProfiles[id].watts = v; }) }),
+                        window.SP_REACT.createElement("div", { style: { fontSize: "0.7em", opacity: 0.6, margin: "2px 0 8px" } },
+                            "The slider goes to ",
+                            tdpMax,
+                            "W; an unlocked BIOS is required to exceed the stock 15W cap."),
+                        window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => { mutate((n) => { delete n.tdpProfiles[id]; }); setSelTdp(null); } }, "Delete profile"))));
+            }
+            const ids = Object.keys(cfgTdpProfiles);
+            return (window.SP_REACT.createElement("div", null,
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: newTdpProfile, disabled: busy, style: { marginBottom: "10px" } }, "+ New TDP profile"),
+                ids.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6 } }, "No TDP profiles yet. Create wattage presets here, then apply them from the panel, a task, or a mode.")) : (ids.map((id) => (window.SP_REACT.createElement(ListRow, { key: id, label: cfgTdpProfiles[id].name || id, sub: (cfgTdpProfiles[id].watts ?? "?") + "W", onClick: () => setSelTdp(id) }))))));
+        }
         return (window.SP_REACT.createElement(deckyFrontendLib.ModalRoot, { onCancel: closeModal, onEscKeypress: closeModal },
             window.SP_REACT.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" } },
                 window.SP_REACT.createElement("div", { style: { fontSize: "1.4em", fontWeight: 700 } }, "Edit configuration"),
@@ -835,14 +1035,190 @@
                 window.SP_REACT.createElement(TabButton, { active: tab === "actions", label: "Actions", onClick: () => setTab("actions") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "modes", label: "Modes", onClick: () => setTab("modes") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "favorites", label: "Favorites", onClick: () => setTab("favorites") }),
+                window.SP_REACT.createElement(TabButton, { active: tab === "fan", label: "Fan", onClick: () => setTab("fan") }),
+                window.SP_REACT.createElement(TabButton, { active: tab === "tdp", label: "TDP", onClick: () => setTab("tdp") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "sunshine", label: "Sunshine", onClick: () => setTab("sunshine") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "triggers", label: "Triggers", onClick: () => setTab("triggers") })),
             window.SP_REACT.createElement("div", { style: { maxHeight: "62vh", overflowY: "scroll", paddingRight: "6px" } },
                 tab === "actions" ? renderActions() : null,
                 tab === "modes" ? renderModes() : null,
                 tab === "favorites" ? renderFavorites() : null,
+                tab === "fan" ? renderFan() : null,
+                tab === "tdp" ? renderTdp() : null,
                 tab === "sunshine" ? renderSunshine() : null,
                 tab === "triggers" ? renderAutoDock() : null)));
+    };
+
+    // Live editor for the *active* fan config, with quick apply of saved profiles
+    // and a "save current as profile" shortcut. Full profile management lives in the
+    // editor's Fan tab.
+    const FanModal = ({ closeModal, onSaved }) => {
+        const [cfg, setCfg] = react.useState(null);
+        const [mode, setMode] = react.useState("auto");
+        const [manualRpm, setManualRpm] = react.useState(3000);
+        const [interpolate, setInterpolate] = react.useState(true);
+        const [points, setPoints] = react.useState([]);
+        const [maxRpm, setMaxRpm] = react.useState(8000);
+        const [live, setLive] = react.useState(null);
+        const [profiles, setProfiles] = react.useState([]);
+        const [newName, setNewName] = react.useState("");
+        const [busy, setBusy] = react.useState(false);
+        const [msg, setMsg] = react.useState("");
+        const [dirty, setDirty] = react.useState(false);
+        function loadFrom(c) {
+            const s = c.settings || {};
+            setCfg(c);
+            setMode(s.fanMode || "auto");
+            setManualRpm(typeof s.fanManualRpm === "number" ? s.fanManualRpm : 3000);
+            setInterpolate(s.fanCurve?.interpolate !== false);
+            setPoints((s.fanCurve?.points || []).map((p) => ({ temp: p.temp, rpm: p.rpm })));
+            setProfiles(Object.keys(c.fanProfiles || {}).map((id) => ({ id, name: c.fanProfiles[id].name || id })));
+        }
+        react.useEffect(() => {
+            call("get_config", {})
+                .then((r) => loadFrom(r && r.config ? r.config : { actions: {}, modes: {}, settings: {} }))
+                .catch((err) => setMsg("Error: " + errText(err)));
+        }, []);
+        react.useEffect(() => {
+            let stop = false;
+            function tick() {
+                call("get_state", {})
+                    .then((st) => {
+                    if (stop || !st || !st.fan)
+                        return;
+                    setLive(st.fan);
+                    if (st.fan.maxRpm)
+                        setMaxRpm(st.fan.maxRpm);
+                })
+                    .catch(() => { });
+            }
+            tick();
+            const iv = setInterval(tick, 1500);
+            return () => { stop = true; clearInterval(iv); };
+        }, []);
+        // Persist active fan settings into the whole config, then apply immediately.
+        function save(applyMode, applyRpm) {
+            if (!cfg)
+                return;
+            setBusy(true);
+            setMsg("Saving…");
+            const next = clone(cfg);
+            next.settings = next.settings || {};
+            next.settings.fanMode = applyMode;
+            next.settings.fanManualRpm = applyRpm;
+            next.settings.fanCurve = { interpolate, points: sortPoints(points) };
+            next.settings.fanProfile = ""; // manual edit, not a saved profile
+            call("save_config", { config: next })
+                .then((r) => {
+                if (!(r && r.ok))
+                    throw new Error((r && r.error) || "save failed");
+                setCfg(next);
+                setDirty(false);
+                return call("set_fan_mode", { mode: applyMode, rpm: applyRpm });
+            })
+                .then((r) => {
+                setBusy(false);
+                setMsg(r && r.message ? r.message : "Applied");
+                toast("Fan: " + (r && r.message ? r.message : applyMode));
+                if (r && r.state)
+                    onSaved(r.state);
+            })
+                .catch((err) => { setBusy(false); setMsg("Error: " + errText(err)); toast("Fan save failed"); });
+        }
+        function pickMode(m) {
+            setMode(m);
+            save(m, manualRpm);
+        }
+        // Apply a saved profile (loads it into the active config) and refresh the draft.
+        function applyProfile(id) {
+            setBusy(true);
+            setMsg("Applying profile…");
+            call("apply_fan_profile", { profile_id: id })
+                .then((r) => {
+                setBusy(false);
+                setMsg(r && r.message ? r.message : "Applied");
+                if (r && r.state)
+                    onSaved(r.state);
+                return call("get_config", {});
+            })
+                .then((r) => { if (r && r.config)
+                loadFrom(r.config); })
+                .catch((err) => { setBusy(false); setMsg("Error: " + errText(err)); });
+        }
+        // Save the current active settings as a new named profile.
+        function saveAsProfile() {
+            if (!cfg)
+                return;
+            const name = newName.trim();
+            if (!name) {
+                setMsg("Enter a profile name first");
+                return;
+            }
+            setBusy(true);
+            setMsg("Saving profile…");
+            const next = clone(cfg);
+            next.fanProfiles = next.fanProfiles || {};
+            const id = uniqueId(slugify(name), next.fanProfiles);
+            next.fanProfiles[id] = {
+                name,
+                mode,
+                manualRpm,
+                curve: { interpolate, points: sortPoints(points) },
+            };
+            call("save_config", { config: next })
+                .then((r) => {
+                setBusy(false);
+                if (!(r && r.ok))
+                    throw new Error((r && r.error) || "save failed");
+                loadFrom(next);
+                setNewName("");
+                setMsg("Saved profile '" + name + "'");
+                toast("Saved fan profile");
+                if (r.state)
+                    onSaved(r.state);
+            })
+                .catch((err) => { setBusy(false); setMsg("Error: " + errText(err)); });
+        }
+        const ModeButton = ({ m, label }) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => pickMode(m), style: {
+                flex: 1, minWidth: 0, padding: "8px 4px",
+                fontWeight: mode === m ? 700 : 400,
+                background: mode === m ? "rgba(91,124,240,0.35)" : "rgba(255,255,255,0.06)",
+                border: mode === m ? "1px solid #5b7cf0" : "1px solid transparent",
+            } }, label));
+        const unavailable = live && live.available === false;
+        const profileOpts = [{ data: "", label: profiles.length ? "Apply a profile…" : "(no profiles yet)" }]
+            .concat(profiles.map((p) => ({ data: p.id, label: p.name })));
+        return (window.SP_REACT.createElement(deckyFrontendLib.ModalRoot, { onCancel: closeModal, onEscKeypress: closeModal },
+            window.SP_REACT.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" } },
+                window.SP_REACT.createElement("div", { style: { fontSize: "1.4em", fontWeight: 700 } }, "Fan control"),
+                window.SP_REACT.createElement("div", { style: { fontSize: "0.95em", opacity: 0.9 } },
+                    typeof live?.tempC === "number" ? `${live.tempC}°C` : "—°C",
+                    " \u00B7",
+                    " ",
+                    typeof live?.rpm === "number" ? `${live.rpm} RPM` : "— RPM",
+                    typeof live?.target === "number" && live.mode !== "auto" ? ` (→${live.target})` : "")),
+            unavailable ? (window.SP_REACT.createElement("div", { style: { color: "#e8a33d", fontSize: "0.85em", marginBottom: "8px" } }, "No controllable fan found on this device.")) : null,
+            profiles.length ? (window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Saved profiles", rgOptions: profileOpts, selectedOption: "", onChange: (o) => o.data && applyProfile(o.data) })) : null,
+            window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "6px", margin: "8px 0 10px" } },
+                window.SP_REACT.createElement(ModeButton, { m: "auto", label: "Auto" }),
+                window.SP_REACT.createElement(ModeButton, { m: "curve", label: "Curve" }),
+                window.SP_REACT.createElement(ModeButton, { m: "manual", label: "Manual" })),
+            mode === "manual" ? (window.SP_REACT.createElement("div", { style: { marginBottom: "10px" } },
+                window.SP_REACT.createElement(Stepper, { label: "Manual fan speed", value: manualRpm, min: 0, max: maxRpm, step: 100, coarse: 1000, disabled: busy, onChange: (v) => { setManualRpm(v); setDirty(true); } }),
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => save("manual", manualRpm) },
+                    "Apply ",
+                    manualRpm,
+                    " RPM"))) : null,
+            mode === "curve" ? (window.SP_REACT.createElement("div", null,
+                window.SP_REACT.createElement(CurveEditor, { points: points, interpolate: interpolate, maxRpm: maxRpm, tempC: live?.tempC, busy: busy, onPoints: (p) => { setPoints(p); setDirty(true); }, onInterpolate: (b) => { setInterpolate(b); setDirty(true); } }),
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !dirty, onClick: () => save("curve", manualRpm), style: { marginTop: "6px" } }, "Save & apply curve"))) : null,
+            mode === "auto" ? (window.SP_REACT.createElement("div", { style: { opacity: 0.7, fontSize: "0.85em", margin: "4px 0 10px" } }, "SteamOS controls the fan. Pick Curve or Manual to take over.")) : null,
+            mode !== "auto" ? (window.SP_REACT.createElement("div", { style: { borderTop: "1px solid rgba(255,255,255,0.1)", marginTop: "8px", paddingTop: "8px" } },
+                window.SP_REACT.createElement("div", { style: { fontWeight: 600, marginBottom: "2px" } }, "Save current as a profile"),
+                window.SP_REACT.createElement(TextRow, { label: "Profile name", value: newName, onChange: setNewName }),
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !newName.trim(), onClick: saveAsProfile }, "Save as profile"))) : null,
+            msg ? window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.8, margin: "8px 0" } }, msg) : null,
+            window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => closeModal?.(), style: { marginTop: "6px" } }, "Close")));
     };
 
     // Pair a Moonlight client with Docky's Sunshine. If no Sunshine login is stored
@@ -1085,6 +1461,10 @@
         const [msg, setMsg] = react.useState("");
         const [favOpen, setFavOpen] = react.useState(false);
         const [triggersOpen, setTriggersOpen] = react.useState(false);
+        const [fanOpen, setFanOpen] = react.useState(false);
+        const [tdpOpen, setTdpOpen] = react.useState(false);
+        // Local draft for the TDP manual slider (committed on "Apply").
+        const [tdpDraft, setTdpDraft] = react.useState(null);
         function refresh() {
             return call("get_state", {})
                 .then(setState)
@@ -1164,13 +1544,38 @@
                 setMsg("Error: " + errText(err));
             });
         }
-        function openEditor() {
+        // Generic "fire a backend control method that returns {message,state}" helper
+        // for the fan/TDP quick controls.
+        function fanTdpCall(method, args, label) {
+            setBusy(true);
+            setMsg(label + "…");
+            call(method, args)
+                .then((r) => {
+                setBusy(false);
+                if (r && r.state)
+                    setState(r.state);
+                else
+                    refresh();
+                setMsg(r && r.message ? r.message : label);
+            })
+                .catch((err) => {
+                setBusy(false);
+                setMsg("Error: " + errText(err));
+            });
+        }
+        function setFanMode(mode) {
+            fanTdpCall("set_fan_mode", { mode }, "Fan: " + mode);
+        }
+        function releaseControl() {
+            fanTdpCall("release_control", {}, "Handing control to SteamOS");
+        }
+        function openEditor(initialTab) {
             setBusy(true);
             call("get_config", {})
                 .then((r) => {
                 setBusy(false);
                 const config = r && r.config ? r.config : { actions: {}, modes: {}, settings: {} };
-                deckyFrontendLib.showModal(window.SP_REACT.createElement(EditorModal, { initialConfig: config, profiles: (state && state.pcsx2_profiles) || [], installedPlugins: (state && state.installed_plugins) || [], onSaved: (st) => {
+                deckyFrontendLib.showModal(window.SP_REACT.createElement(EditorModal, { initialConfig: config, initialTab: initialTab, profiles: (state && state.pcsx2_profiles) || [], installedPlugins: (state && state.installed_plugins) || [], onSaved: (st) => {
                         if (st)
                             setState(st);
                         else
@@ -1197,6 +1602,8 @@
         const sett = state.settings || {};
         const modes = state.modes || [];
         const favorites = state.favorites || [];
+        const fanProfiles = state.fanProfiles || [];
+        const tdpProfiles = state.tdpProfiles || [];
         const activeName = (() => {
             const found = modes.filter((x) => x.id === state.activeMode)[0];
             return found ? found.name : state.activeMode || "none";
@@ -1209,8 +1616,10 @@
                             window.SP_REACT.createElement(InfoIcon, null)),
                         window.SP_REACT.createElement(IconButton, { label: "Reload", disabled: busy, onClick: refresh },
                             window.SP_REACT.createElement(ReloadIcon, null)),
-                        window.SP_REACT.createElement(IconButton, { label: "Settings", disabled: busy, onClick: openEditor },
-                            window.SP_REACT.createElement(SettingsIcon, null))))),
+                        window.SP_REACT.createElement(IconButton, { label: "Settings", disabled: busy, onClick: () => openEditor() },
+                            window.SP_REACT.createElement(SettingsIcon, null)))),
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, description: "Fan \u2192 auto and TDP cap lifted; SteamOS/BIOS defaults take over", onClick: releaseControl }, "\u23CF Hand control back to SteamOS"))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Sunshine" },
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px" } },
@@ -1221,6 +1630,62 @@
                         window.SP_REACT.createElement(IconButton, { disabled: busy || !(state.sunshine && state.sunshine.installed), onClick: () => state.sunshine && state.sunshine.running
                                 ? sunshineControl("sunshine_stop", "Stopping")
                                 : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null)))))),
+            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(SectionHeader, { title: "Fan", open: fanOpen, onToggle: () => setFanOpen(!fanOpen) })),
+                !fanOpen ? null : (window.SP_REACT.createElement(window.SP_REACT.Fragment, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement("div", { style: { display: "flex", justifyContent: "space-between", padding: "0 4px 4px", fontSize: "0.9em" } },
+                            window.SP_REACT.createElement("span", { style: { opacity: 0.75 } },
+                                typeof state.fan?.tempC === "number" ? state.fan.tempC + "°C" : "—°C",
+                                " \u00B7",
+                                " ",
+                                typeof state.fan?.rpm === "number" ? state.fan.rpm + " RPM" : "— RPM"),
+                            window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, state.fan?.profile
+                                ? (fanProfiles.filter((p) => p.id === state.fan.profile)[0]?.name || state.fan.profile)
+                                : (state.fan?.mode || "auto").toUpperCase()))),
+                    fanProfiles.length ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Apply profile", rgOptions: [{ data: "auto", label: "Auto (SteamOS)" }].concat(fanProfiles.map((p) => ({ data: p.id, label: p.name }))), selectedOption: state.fan?.profile || "auto", onChange: (o) => fanTdpCall("apply_fan_profile", { profile_id: o.data }, "Fan profile") }))) : null,
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "6px" } }, ["auto", "curve", "manual"].map((m) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { key: m, disabled: busy || state.fan?.available === false, onClick: () => setFanMode(m), style: {
+                                flex: 1,
+                                minWidth: 0,
+                                padding: "6px 4px",
+                                fontWeight: (state.fan?.mode || "auto") === m ? 700 : 400,
+                                background: (state.fan?.mode || "auto") === m ? "rgba(91,124,240,0.35)" : "rgba(255,255,255,0.06)",
+                                border: (state.fan?.mode || "auto") === m ? "1px solid #5b7cf0" : "1px solid transparent",
+                            } }, m === "auto" ? "Auto" : m === "curve" ? "Curve" : "Manual"))))),
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(FanModal, { onSaved: (st) => { if (st)
+                                    setState(st);
+                                else
+                                    refresh(); } })) }, "Edit fan curve\u2026")),
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => openEditor("fan") }, "Manage fan profiles\u2026"))))),
+            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(SectionHeader, { title: "TDP", open: tdpOpen, onToggle: () => setTdpOpen(!tdpOpen) })),
+                !tdpOpen ? null : state.tdp?.available === false ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement("div", { style: { opacity: 0.7, padding: "0 4px" } }, "No adjustable TDP on this device."))) : (window.SP_REACT.createElement(window.SP_REACT.Fragment, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement("div", { style: { display: "flex", justifyContent: "space-between", padding: "0 4px 4px", fontSize: "0.9em" } },
+                            window.SP_REACT.createElement("span", { style: { opacity: 0.75 } }, typeof state.tdp?.watts === "number" ? "Now " + state.tdp.watts + "W" : "—W"),
+                            window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, state.tdp?.profile
+                                ? (tdpProfiles.filter((p) => p.id === state.tdp.profile)[0]?.name || state.tdp.profile)
+                                : "Manual"))),
+                    tdpProfiles.length ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Apply profile", rgOptions: tdpProfiles.map((p) => ({ data: p.id, label: p.name + (p.watts ? " (" + p.watts + "W)" : "") })), selectedOption: state.tdp?.profile || "", onChange: (o) => { setTdpDraft(null); fanTdpCall("apply_tdp_profile", { profile_id: o.data }, "TDP profile"); } }))) : null,
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(Stepper, { label: "Manual TDP (W)", value: tdpDraft ?? state.tdp?.setWatts ?? 15, min: 3, max: state.tdp?.max || 15, step: 1, unit: "W", disabled: busy, onChange: (v) => setTdpDraft(v) })),
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => fanTdpCall("set_tdp_watts", { watts: tdpDraft ?? state.tdp?.setWatts ?? 15 }, "Set TDP") },
+                            "Apply ",
+                            tdpDraft ?? state.tdp?.setWatts ?? 15,
+                            "W")),
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Keep enforced", description: "Re-apply continuously so Steam's TDP slider can't override it", checked: !!state.tdp?.enforce, disabled: busy, onChange: (v) => fanTdpCall("set_tdp_enforce", { on: v }, "TDP enforce " + (v ? "on" : "off")) })),
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => openEditor("tdp") }, "Manage TDP profiles\u2026"))))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(SectionHeader, { title: "Favorites", open: favOpen, onToggle: () => setFavOpen(!favOpen) })),

@@ -1,6 +1,12 @@
 import { Task } from "./util";
 
-export type FieldKind = "text" | "bool" | "profile" | "select";
+export type FieldKind =
+  | "text"
+  | "bool"
+  | "profile" // PCSX2 input profile (from live state)
+  | "select"
+  | "fanProfile" // saved fan profile (from config.fanProfiles)
+  | "tdpProfile"; // saved TDP profile (from config.tdpProfiles)
 
 export interface TaskField {
   key: string;
@@ -156,8 +162,28 @@ export const TASK_DEFS: TaskTypeDef[] = [
     type: "tdp",
     label: "Performance: set TDP watts (docked power)",
     builtin: true,
-    fields: [{ key: "watts", kind: "text", label: "TDP (watts, e.g. 15)" }],
-    summary: (t) => "TDP: " + (t.watts ? t.watts + "W" : "?"),
+    fields: [
+      { key: "profile", kind: "tdpProfile", label: "TDP profile" },
+      { key: "watts", kind: "text", label: "…or custom watts (e.g. 15)" },
+    ],
+    summary: (t) =>
+      t.profile
+        ? "TDP profile: " + t.profile
+        : "TDP: " + (t.watts ? t.watts + "W" : "?"),
+  },
+  {
+    type: "fan",
+    label: "Performance: fan control (profile / manual / auto)",
+    builtin: true,
+    fields: [{ key: "profile", kind: "fanProfile", label: "Fan profile" }],
+    summary: (t) => "Fan: " + (t.profile || "auto"),
+  },
+  {
+    type: "release_control",
+    label: "Performance: hand control back to SteamOS (fan + TDP defaults)",
+    builtin: true,
+    fields: [],
+    summary: () => "Release control to SteamOS",
   },
   {
     type: "flatpak_update",

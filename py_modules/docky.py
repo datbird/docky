@@ -82,9 +82,35 @@ def default_config():
             # Startup (when Docky loads at boot).
             "autoStartup": False,
             "startupMode": "",
+            # --- fan control (Fantastic-style curve engine) ---
+            # fanMode: "auto" (SteamOS owns the fan), "manual" (hold a fixed
+            # RPM), or "curve" (temperature -> RPM via fanCurve). A background
+            # loop in main.py enforces manual/curve every couple of seconds.
+            # fanCurve here is the *active* (live) curve; saved presets live in
+            # the top-level "fanProfiles". fanProfile = id of the last applied
+            # profile (for display), or "" when set manually.
+            "fanMode": "auto",
+            "fanManualRpm": 3000,
+            "fanCurve": {
+                "interpolate": True,
+                "points": list(deckops.DEFAULT_FAN_CURVE),
+            },
+            "fanProfile": "",
+            # --- TDP (power cap) ---
+            # tdpWatts is the active/last-applied cap. tdpEnforce, when on, makes
+            # a background loop re-apply it every few seconds so Steam's own TDP
+            # slider can't override it. tdpProfile = last applied preset id.
+            "tdpWatts": 15,
+            "tdpEnforce": False,
+            "tdpProfile": "",
         },
         "actions": {},
         "modes": {},
+        # Saved presets. fanProfiles[id] = {name, mode, manualRpm, curve}.
+        # tdpProfiles[id] = {name, watts}. Built in the editor's Fan/TDP tabs;
+        # applied by the panel, the fan/tdp tasks, or a mode.
+        "fanProfiles": {},
+        "tdpProfiles": {},
         # Per-task-type settings (global, not per-task), keyed by task type.
         # e.g. {"pcsx2_profile": {"profiles_dir": "..."}}
         "taskSettings": {},
@@ -129,15 +155,24 @@ def load_config():
     return cfg
 
 
+# config.json is read-modify-written by several frontend-triggered paths (panel
+# fan/TDP quick controls + the editor's full-config save), all on worker threads
+# via asyncio.to_thread. Serialize read→modify→write so a whole-object save can't
+# clobber a field another writer just set. Re-entrant so a helper holding the lock
+# can still call save_config(). Wrap multi-step updates in `with _config_lock:`.
+_config_lock = threading.RLock()
+
+
 def save_config(cfg):
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    tmp = CONFIG_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2)
-    os.replace(tmp, CONFIG_PATH)
-    # Keep the config user-owned/editable even though the backend runs as root.
-    _chown_to_parent(CONFIG_DIR)
-    _chown_to_parent(CONFIG_PATH)
+    with _config_lock:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        tmp = CONFIG_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        os.replace(tmp, CONFIG_PATH)
+        # Keep the config user-owned/editable even though the backend runs as root.
+        _chown_to_parent(CONFIG_DIR)
+        _chown_to_parent(CONFIG_PATH)
 
 
 # state.json is read-modify-written by both the trigger watcher and frontend
@@ -337,8 +372,24 @@ def run_task(task, allow_running_emu=True):
             r.update(ok=ok, message=msg)
 
         elif t == "tdp":
-            ok, msg = deckops.set_tdp(task.get("watts"))
-            r.update(ok=ok, message=msg)
+            # Prefer a saved profile; fall back to an inline watts value.
+            if task.get("profile"):
+                res = apply_tdp_profile(task["profile"])
+            else:
+                res = set_tdp_watts(task.get("watts"))
+            r.update(ok=res.get("ok", True), message=res.get("message", ""))
+
+        elif t == "fan":
+            # Prefer a saved profile; fall back to an inline mode/rpm.
+            if task.get("profile"):
+                res = apply_fan_profile(task["profile"])
+            else:
+                res = set_fan_mode(task.get("mode"), task.get("rpm"))
+            r.update(ok=res.get("ok", True), message=res.get("message", ""))
+
+        elif t == "release_control":
+            res = release_control()
+            r.update(ok=res.get("ok", True), message=res.get("message", ""))
 
         elif t == "flatpak_update":
             ok, msg = deckops.flatpak_update(task.get("app", ""))
@@ -444,6 +495,206 @@ def suggested_mode(cfg=None, docked=None):
     return s["dockedMode"] if docked else s["undockedMode"]
 
 
+# ---------------- fan control (Fantastic-style curve engine) ----------------
+
+def _fan_settings(cfg=None):
+    return (cfg or load_config()).get("settings", {})
+
+
+def _fan_target_for(s):
+    """The RPM the current fan settings want right now, plus the temp used.
+    Returns (mode, target_rpm_or_None, temp_c). target is None in auto mode."""
+    mode = s.get("fanMode", "auto")
+    temp = deckops.read_temp_c()
+    if mode == "manual":
+        try:
+            return mode, max(0, int(s.get("fanManualRpm") or 0)), temp
+        except (TypeError, ValueError):
+            return mode, 0, temp
+    if mode == "curve":
+        fc = s.get("fanCurve") or {}
+        return mode, deckops.curve_rpm(temp, fc.get("points") or [],
+                                       fc.get("interpolate", True)), temp
+    return mode, None, temp
+
+
+def fan_apply(cfg=None):
+    """Enforce the configured fan mode once (called every tick by the loop while
+    in manual/curve). Writes fan1_target for manual/curve; no-op for auto.
+    Returns {mode, owned, target, temp, ok, message}."""
+    s = _fan_settings(cfg)
+    mode, target, temp = _fan_target_for(s)
+    if mode in ("manual", "curve") and target is not None:
+        ok, msg = deckops.write_fan_rpm(target)
+        return {"mode": mode, "owned": True, "target": target, "temp": temp,
+                "ok": ok, "message": msg}
+    return {"mode": mode, "owned": False, "target": None, "temp": temp,
+            "ok": True, "message": "auto"}
+
+
+def fan_release():
+    """Hand the fan back to SteamOS. Called when leaving manual/curve."""
+    return deckops.restore_auto_fan()
+
+
+def set_fan_mode(mode, rpm=None):
+    """Persist a new fan mode (and optional manual RPM) and apply it immediately.
+    Used by the `fan` task and the panel's quick controls. The background loop
+    then maintains it. Returns {ok, message, state-ish fan dict}."""
+    mode = (mode or "auto").lower()
+    if mode not in ("auto", "manual", "curve"):
+        return {"ok": False, "message": "fan mode must be auto/manual/curve"}
+    if rpm is not None and str(rpm) != "":
+        try:
+            rpm = max(0, int(rpm))
+        except (TypeError, ValueError):
+            return {"ok": False, "message": "invalid fan RPM: %r" % (rpm,)}
+    else:
+        rpm = None
+    with _config_lock:
+        cfg = load_config()
+        cfg["settings"]["fanMode"] = mode
+        # A manual change isn't a saved profile any more — clear the active marker.
+        cfg["settings"]["fanProfile"] = ""
+        if rpm is not None:
+            cfg["settings"]["fanManualRpm"] = rpm
+        save_config(cfg)
+    if mode == "auto":
+        ok, msg = fan_release()
+    else:
+        res = fan_apply(cfg)
+        ok, msg = res["ok"], res["message"]
+    return {"ok": ok, "message": msg, "fan": fan_status(cfg)}
+
+
+def apply_fan_profile(profile_id):
+    """Load a saved fan profile into the active fan settings and apply it.
+    profile_id "" / "auto" returns the fan to SteamOS. Returns {ok, message, fan}."""
+    if not profile_id or profile_id == "auto":
+        res = set_fan_mode("auto")
+        return res
+    with _config_lock:
+        cfg = load_config()
+        prof = (cfg.get("fanProfiles") or {}).get(profile_id)
+        if not prof:
+            return {"ok": False, "message": "no such fan profile: %s" % profile_id}
+        s = cfg["settings"]
+        s["fanMode"] = prof.get("mode", "curve")
+        if "manualRpm" in prof:
+            s["fanManualRpm"] = prof["manualRpm"]
+        if "curve" in prof:
+            s["fanCurve"] = prof["curve"]
+        s["fanProfile"] = profile_id
+        save_config(cfg)
+    if s["fanMode"] == "auto":
+        ok, msg = fan_release()
+    else:
+        res = fan_apply(cfg)
+        ok, msg = res["ok"], res["message"]
+    return {"ok": ok, "message": "applied fan profile '%s'" % prof.get("name", profile_id)
+            if ok else msg, "fan": fan_status(cfg)}
+
+
+def fan_status(cfg=None):
+    """Live fan state for the UI: mode, current temp/RPM, commanded target, and
+    the curve settings."""
+    s = _fan_settings(cfg)
+    fc = s.get("fanCurve") or {}
+    return {
+        "mode": s.get("fanMode", "auto"),
+        "tempC": deckops.read_temp_c(),
+        "rpm": deckops.read_fan_rpm(),
+        "target": deckops.read_fan_target(),
+        "manualRpm": s.get("fanManualRpm", 0),
+        "interpolate": fc.get("interpolate", True),
+        "points": fc.get("points") or [],
+        "available": deckops._fan_target_path() is not None,
+        "maxRpm": deckops.FAN_MAX_RPM,
+        "profile": s.get("fanProfile", ""),
+    }
+
+
+# ---------------- TDP (power cap) ----------------
+
+def set_tdp_watts(watts, mark_manual=True):
+    """Apply a TDP cap now and persist it as the active value. mark_manual clears
+    the active-profile marker (a hand-set watts isn't a saved profile)."""
+    ok, msg = deckops.set_tdp(watts)
+    if ok:
+        with _config_lock:
+            cfg = load_config()
+            cfg["settings"]["tdpWatts"] = max(1, int(watts))  # set_tdp already validated
+            if mark_manual:
+                cfg["settings"]["tdpProfile"] = ""
+            save_config(cfg)
+    return {"ok": ok, "message": msg, "tdp": tdp_status()}
+
+
+def apply_tdp_profile(profile_id):
+    """Apply a saved TDP profile (its watts) and mark it active."""
+    with _config_lock:
+        cfg = load_config()
+        prof = (cfg.get("tdpProfiles") or {}).get(profile_id)
+        if not prof:
+            return {"ok": False, "message": "no such TDP profile: %s" % profile_id}
+        ok, msg = deckops.set_tdp(prof.get("watts"))  # fast sysfs write
+        if ok:
+            cfg["settings"]["tdpWatts"] = prof.get("watts")
+            cfg["settings"]["tdpProfile"] = profile_id
+            save_config(cfg)
+    return {"ok": ok, "message": "applied TDP profile '%s'" % prof.get("name", profile_id)
+            if ok else msg, "tdp": tdp_status()}
+
+
+def set_tdp_enforce(on):
+    """Toggle background TDP enforcement. Turning it on re-applies now so it takes
+    effect immediately; the loop keeps it pinned."""
+    with _config_lock:
+        cfg = load_config()
+        cfg["settings"]["tdpEnforce"] = bool(on)
+        save_config(cfg)
+    if on:
+        deckops.set_tdp(cfg["settings"].get("tdpWatts", 15))
+    return {"ok": True, "message": "TDP enforcement " + ("on" if on else "off"),
+            "tdp": tdp_status(cfg)}
+
+
+def tdp_apply(cfg=None):
+    """Re-apply the active TDP cap (called by the loop while enforcement is on)."""
+    s = _fan_settings(cfg)
+    return deckops.set_tdp(s.get("tdpWatts", 15))
+
+
+def release_control():
+    """Disable all Docky hardware control: hand the fan back to SteamOS and lift
+    the TDP cap to its default (enforcement off). Returns {ok, message, fan, tdp}."""
+    fan = set_fan_mode("auto")          # fanMode=auto, fanProfile="", restarts daemon
+    with _config_lock:
+        cfg = load_config()
+        cfg["settings"]["tdpEnforce"] = False
+        cfg["settings"]["tdpProfile"] = ""
+        save_config(cfg)
+    ok_t, msg_t = deckops.reset_tdp()
+    ok = bool(fan.get("ok", True)) and ok_t
+    return {"ok": ok,
+            "message": "Handed control back to SteamOS" if ok else (msg_t or fan.get("message", "")),
+            "fan": fan_status(), "tdp": tdp_status()}
+
+
+def tdp_status(cfg=None):
+    """Live TDP state for the UI."""
+    s = _fan_settings(cfg)
+    info = deckops.get_tdp()
+    return {
+        "watts": info.get("watts"),          # current hardware cap
+        "setWatts": s.get("tdpWatts", 15),   # configured/last-applied
+        "max": info.get("max", 15),
+        "enforce": bool(s.get("tdpEnforce", False)),
+        "profile": s.get("tdpProfile", ""),
+        "available": bool(info),
+    }
+
+
 def _task_bool_status(task):
     """Current on/off state of a stateful task, or None if it has no readable
     state. Add a task type here to give it a live status LED on its buttons."""
@@ -526,6 +777,12 @@ def get_state():
         "sunshine": dict(sunshine.status(), credsStored=bool(st.get("sunshineAuth")),
                          engine=sunshine_engine(cfg),
                          resolvedEngine=resolved_engine(cfg, plugins)),
+        "fan": fan_status(cfg),
+        "tdp": tdp_status(cfg),
+        "fanProfiles": [{"id": k, "name": v.get("name", k)}
+                        for k, v in (cfg.get("fanProfiles") or {}).items()],
+        "tdpProfiles": [{"id": k, "name": v.get("name", k), "watts": v.get("watts")}
+                        for k, v in (cfg.get("tdpProfiles") or {}).items()],
         "config_path": CONFIG_PATH,
     }
 

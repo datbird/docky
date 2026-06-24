@@ -6,12 +6,15 @@ import {
   PanelSectionRow,
   ButtonItem,
   DialogButton,
+  DropdownItem,
   Focusable,
   ToggleField,
   showModal,
 } from "decky-frontend-lib";
 import { DockyState, RunResult, call, errText, setServer, summarize, toast } from "./util";
+import { Stepper } from "./components/inputs";
 import { EditorModal } from "./components/EditorModal";
+import { FanModal } from "./components/FanModal";
 import { PairModal } from "./components/PairModal";
 import { StatusModal } from "./components/StatusModal";
 
@@ -164,6 +167,10 @@ const Content: VFC = () => {
   const [msg, setMsg] = useState<string>("");
   const [favOpen, setFavOpen] = useState<boolean>(false);
   const [triggersOpen, setTriggersOpen] = useState<boolean>(false);
+  const [fanOpen, setFanOpen] = useState<boolean>(false);
+  const [tdpOpen, setTdpOpen] = useState<boolean>(false);
+  // Local draft for the TDP manual slider (committed on "Apply").
+  const [tdpDraft, setTdpDraft] = useState<number | null>(null);
 
   function refresh(): Promise<void> {
     return call<DockyState>("get_state", {})
@@ -246,7 +253,33 @@ const Content: VFC = () => {
       });
   }
 
-  function openEditor() {
+  // Generic "fire a backend control method that returns {message,state}" helper
+  // for the fan/TDP quick controls.
+  function fanTdpCall(method: string, args: any, label: string) {
+    setBusy(true);
+    setMsg(label + "…");
+    call<{ message?: string; state?: DockyState }>(method, args)
+      .then((r) => {
+        setBusy(false);
+        if (r && r.state) setState(r.state);
+        else refresh();
+        setMsg(r && r.message ? r.message : label);
+      })
+      .catch((err) => {
+        setBusy(false);
+        setMsg("Error: " + errText(err));
+      });
+  }
+
+  function setFanMode(mode: "auto" | "manual" | "curve") {
+    fanTdpCall("set_fan_mode", { mode }, "Fan: " + mode);
+  }
+
+  function releaseControl() {
+    fanTdpCall("release_control", {}, "Handing control to SteamOS");
+  }
+
+  function openEditor(initialTab?: string) {
     setBusy(true);
     call<any>("get_config", {})
       .then((r) => {
@@ -255,6 +288,7 @@ const Content: VFC = () => {
         showModal(
           <EditorModal
             initialConfig={config}
+            initialTab={initialTab as any}
             profiles={(state && state.pcsx2_profiles) || []}
             installedPlugins={(state && state.installed_plugins) || []}
             onSaved={(st) => {
@@ -297,6 +331,8 @@ const Content: VFC = () => {
   const sett = state.settings || {};
   const modes = state.modes || [];
   const favorites = state.favorites || [];
+  const fanProfiles = state.fanProfiles || [];
+  const tdpProfiles = state.tdpProfiles || [];
   const activeName = (() => {
     const found = modes.filter((x) => x.id === state.activeMode)[0];
     return found ? found.name : state.activeMode || "none";
@@ -321,10 +357,20 @@ const Content: VFC = () => {
             <IconButton label="Reload" disabled={busy} onClick={refresh}>
               <ReloadIcon />
             </IconButton>
-            <IconButton label="Settings" disabled={busy} onClick={openEditor}>
+            <IconButton label="Settings" disabled={busy} onClick={() => openEditor()}>
               <SettingsIcon />
             </IconButton>
           </Focusable>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            disabled={busy}
+            description="Fan → auto and TDP cap lifted; SteamOS/BIOS defaults take over"
+            onClick={releaseControl}
+          >
+            ⏏ Hand control back to SteamOS
+          </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
 
@@ -373,6 +419,147 @@ const Content: VFC = () => {
             </IconButton>
           </Focusable>
         </PanelSectionRow>
+      </PanelSection>
+
+      <PanelSection>
+        <PanelSectionRow>
+          <SectionHeader title="Fan" open={fanOpen} onToggle={() => setFanOpen(!fanOpen)} />
+        </PanelSectionRow>
+        {!fanOpen ? null : (
+          <>
+            <PanelSectionRow>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "0 4px 4px", fontSize: "0.9em" }}>
+                <span style={{ opacity: 0.75 }}>
+                  {typeof state.fan?.tempC === "number" ? state.fan!.tempC + "°C" : "—°C"} ·{" "}
+                  {typeof state.fan?.rpm === "number" ? state.fan!.rpm + " RPM" : "— RPM"}
+                </span>
+                <span style={{ fontWeight: 600 }}>
+                  {state.fan?.profile
+                    ? (fanProfiles.filter((p) => p.id === state.fan!.profile)[0]?.name || state.fan!.profile)
+                    : (state.fan?.mode || "auto").toUpperCase()}
+                </span>
+              </div>
+            </PanelSectionRow>
+            {fanProfiles.length ? (
+              <PanelSectionRow>
+                <DropdownItem
+                  label="Apply profile"
+                  rgOptions={[{ data: "auto", label: "Auto (SteamOS)" }].concat(
+                    fanProfiles.map((p) => ({ data: p.id, label: p.name }))
+                  )}
+                  selectedOption={state.fan?.profile || "auto"}
+                  onChange={(o) => fanTdpCall("apply_fan_profile", { profile_id: o.data }, "Fan profile")}
+                />
+              </PanelSectionRow>
+            ) : null}
+            <PanelSectionRow>
+              <Focusable flow-children="horizontal" style={{ display: "flex", gap: "6px" }}>
+                {(["auto", "curve", "manual"] as const).map((m) => (
+                  <DialogButton
+                    key={m}
+                    disabled={busy || state.fan?.available === false}
+                    onClick={() => setFanMode(m)}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      padding: "6px 4px",
+                      fontWeight: (state.fan?.mode || "auto") === m ? 700 : 400,
+                      background: (state.fan?.mode || "auto") === m ? "rgba(91,124,240,0.35)" : "rgba(255,255,255,0.06)",
+                      border: (state.fan?.mode || "auto") === m ? "1px solid #5b7cf0" : "1px solid transparent",
+                    }}
+                  >
+                    {m === "auto" ? "Auto" : m === "curve" ? "Curve" : "Manual"}
+                  </DialogButton>
+                ))}
+              </Focusable>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ButtonItem
+                layout="below"
+                disabled={busy}
+                onClick={() => showModal(<FanModal onSaved={(st) => { if (st) setState(st); else refresh(); }} />)}
+              >
+                Edit fan curve…
+              </ButtonItem>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ButtonItem layout="below" disabled={busy} onClick={() => openEditor("fan")}>
+                Manage fan profiles…
+              </ButtonItem>
+            </PanelSectionRow>
+          </>
+        )}
+      </PanelSection>
+
+      <PanelSection>
+        <PanelSectionRow>
+          <SectionHeader title="TDP" open={tdpOpen} onToggle={() => setTdpOpen(!tdpOpen)} />
+        </PanelSectionRow>
+        {!tdpOpen ? null : state.tdp?.available === false ? (
+          <PanelSectionRow>
+            <div style={{ opacity: 0.7, padding: "0 4px" }}>No adjustable TDP on this device.</div>
+          </PanelSectionRow>
+        ) : (
+          <>
+            <PanelSectionRow>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "0 4px 4px", fontSize: "0.9em" }}>
+                <span style={{ opacity: 0.75 }}>
+                  {typeof state.tdp?.watts === "number" ? "Now " + state.tdp!.watts + "W" : "—W"}
+                </span>
+                <span style={{ fontWeight: 600 }}>
+                  {state.tdp?.profile
+                    ? (tdpProfiles.filter((p) => p.id === state.tdp!.profile)[0]?.name || state.tdp!.profile)
+                    : "Manual"}
+                </span>
+              </div>
+            </PanelSectionRow>
+            {tdpProfiles.length ? (
+              <PanelSectionRow>
+                <DropdownItem
+                  label="Apply profile"
+                  rgOptions={tdpProfiles.map((p) => ({ data: p.id, label: p.name + (p.watts ? " (" + p.watts + "W)" : "") }))}
+                  selectedOption={state.tdp?.profile || ""}
+                  onChange={(o) => { setTdpDraft(null); fanTdpCall("apply_tdp_profile", { profile_id: o.data }, "TDP profile"); }}
+                />
+              </PanelSectionRow>
+            ) : null}
+            <PanelSectionRow>
+              <Stepper
+                label="Manual TDP (W)"
+                value={tdpDraft ?? state.tdp?.setWatts ?? 15}
+                min={3}
+                max={state.tdp?.max || 15}
+                step={1}
+                unit="W"
+                disabled={busy}
+                onChange={(v) => setTdpDraft(v)}
+              />
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ButtonItem
+                layout="below"
+                disabled={busy}
+                onClick={() => fanTdpCall("set_tdp_watts", { watts: tdpDraft ?? state.tdp?.setWatts ?? 15 }, "Set TDP")}
+              >
+                Apply {tdpDraft ?? state.tdp?.setWatts ?? 15}W
+              </ButtonItem>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ToggleField
+                label="Keep enforced"
+                description="Re-apply continuously so Steam's TDP slider can't override it"
+                checked={!!state.tdp?.enforce}
+                disabled={busy}
+                onChange={(v) => fanTdpCall("set_tdp_enforce", { on: v }, "TDP enforce " + (v ? "on" : "off"))}
+              />
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ButtonItem layout="below" disabled={busy} onClick={() => openEditor("tdp")}>
+                Manage TDP profiles…
+              </ButtonItem>
+            </PanelSectionRow>
+          </>
+        )}
       </PanelSection>
 
       <PanelSection>
