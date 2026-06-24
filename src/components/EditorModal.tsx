@@ -1122,8 +1122,8 @@ export const EditorModal: VFC<{
                 interpolate={curve.interpolate !== false}
                 maxRpm={fanMax}
                 busy={busy}
-                onPoints={(p: CurvePoint[]) => mutate((n) => { n.fanProfiles![id].curve = { interpolate: curve.interpolate !== false, points: sortPoints(p) }; })}
-                onInterpolate={(b) => mutate((n) => { n.fanProfiles![id].curve = { interpolate: b, points: curve.points || [] }; })}
+                onPoints={(p: CurvePoint[]) => mutate((n) => { const c = n.fanProfiles![id].curve || {}; n.fanProfiles![id].curve = { interpolate: c.interpolate !== false, points: sortPoints(p) }; })}
+                onInterpolate={(b) => mutate((n) => { const c = n.fanProfiles![id].curve || { points: [] }; n.fanProfiles![id].curve = { interpolate: b, points: c.points || [] }; })}
               />
             ) : null}
             {mode === "auto" ? (

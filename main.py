@@ -101,12 +101,17 @@ async def _fan_watch():
     # short cadence; fan_apply only stops the daemon when it's actually running.
     # Module-level (NOT a Plugin method) — Decky's class wrapping breaks self.*.
     owned = False
+    tick = 0
     while True:
         try:
             cfg = docky.load_config()
             mode = cfg["settings"].get("fanMode", "auto")
             if mode in ("manual", "curve"):
-                await asyncio.to_thread(docky.fan_apply, cfg)
+                # Stop the stock daemon on entry, then re-check only every ~10s
+                # (catches it restarting after resume) instead of probing every
+                # 2s tick — most ticks just rewrite the target.
+                ensure = (not owned) or (tick % 5 == 0)
+                await asyncio.to_thread(docky.fan_apply, cfg, ensure)
                 owned = True
             elif owned:
                 # Just left manual/curve — give the fan back to SteamOS once.
@@ -123,6 +128,7 @@ async def _fan_watch():
             raise
         except Exception:  # noqa: BLE001
             decky.logger.exception("fan watch error")
+        tick += 1
         await asyncio.sleep(2)
 
 

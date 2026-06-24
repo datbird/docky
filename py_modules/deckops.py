@@ -178,15 +178,12 @@ def external_controller_present():
 # ---------------- TDP (power cap) ----------------
 
 def _amdgpu_cap():
-    """Path to the amdgpu power1_cap (microwatts), or None."""
-    for h in glob.glob("/sys/class/hwmon/hwmon*"):
-        try:
-            with open(os.path.join(h, "name")) as f:
-                name = f.read().strip()
-        except OSError:
-            continue
+    """Path to the amdgpu power1_cap (microwatts), or None. Uses the memoized
+    hwmon resolver so repeated TDP reads don't re-glob /sys/class/hwmon."""
+    h = _hwmon_named("amdgpu")
+    if h:
         cap = os.path.join(h, "power1_cap")
-        if name == "amdgpu" and os.path.exists(cap):
+        if os.path.exists(cap):
             return cap
     return None
 
@@ -278,12 +275,22 @@ DEFAULT_FAN_CURVE = [
 ]
 
 
+# Resolved hwmon paths are stable for the process lifetime (the backend restarts
+# on reboot), and get_state reads them every 1.5–4s — so memoize, turning ~5
+# directory globs + name-file reads per poll into ~0 after warmup.
+_hwmon_cache = {}
+
+
 def _hwmon_named(name):
-    """Path of the hwmonN whose `name` matches, or None."""
+    """Path of the hwmonN whose `name` matches, or None. Memoized."""
+    cached = _hwmon_cache.get(name)
+    if cached and os.path.exists(cached):
+        return cached
     for h in glob.glob("/sys/class/hwmon/hwmon*"):
         try:
             with open(os.path.join(h, "name")) as f:
                 if f.read().strip() == name:
+                    _hwmon_cache[name] = h
                     return h
         except OSError:
             continue
@@ -393,9 +400,10 @@ def curve_rpm(temp_c, points, interpolate=True):
     return max(0, min(FAN_MAX_RPM, int(round(rpm))))
 
 
-def write_fan_rpm(rpm):
-    """Hold a fixed fan target. Stops the stock daemon first (only if running, so
-    this is cheap to call repeatedly from the control loop). Returns (ok, msg)."""
+def write_fan_rpm(rpm, stop_daemon=True):
+    """Hold a fixed fan target. When `stop_daemon` is set, stops the stock daemon
+    first if it's running (so the value sticks). The control loop passes False on
+    steady-state ticks to skip the per-tick `systemctl` probe. Returns (ok, msg)."""
     try:
         r = int(rpm)
     except (ValueError, TypeError):
@@ -406,7 +414,7 @@ def write_fan_rpm(rpm):
     if not tgt:
         return False, "no steamdeck_hwmon fan on this device"
     r = min(r, FAN_MAX_RPM)
-    if jupiter_fan_active():
+    if stop_daemon and jupiter_fan_active():
         _fan_service("stop")
     try:
         with open(tgt, "w") as f:

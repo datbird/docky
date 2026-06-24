@@ -28,6 +28,14 @@ All notable changes to Docky are documented here. This project adheres to
 - Replaced DFL's `SliderField` with a gamepad-friendly stepper built only from
   components guaranteed present in the runtime decky-frontend-lib global.
 
+### Performance
+- Cut the `get_state` poll cost: memoized hwmon path resolution (was re-globbing
+  `/sys/class/hwmon` ~5× per poll), switched PCSX2 detection from a full `/proc`
+  walk to a cached `pgrep`, and the fan loop now probes `jupiter-fan-control`
+  with `systemctl` only on entry / every ~10s instead of every 2s.
+- Prune old PCSX2 pad-profile backups (keep the latest 5) so they don't
+  accumulate on every dock/undock.
+
 ### Notes
 - Requires Decky Loader **3.2.5+** (3.2.6 recommended) for the June 2026 Steam UI
   update; older Decky mis-renders all plugin panels.

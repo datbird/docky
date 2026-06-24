@@ -983,7 +983,7 @@
                                 { data: "auto", label: "Auto (SteamOS)" },
                             ], selectedOption: mode, onChange: (o) => mutate((n) => { n.fanProfiles[id].mode = o.data; }) }),
                         mode === "manual" ? (window.SP_REACT.createElement(Stepper, { label: "Fan RPM", value: prof.manualRpm ?? 3000, min: 0, max: fanMax, step: 100, coarse: 1000, disabled: busy, onChange: (v) => mutate((n) => { n.fanProfiles[id].manualRpm = v; }) })) : null,
-                        mode === "curve" ? (window.SP_REACT.createElement(CurveEditor, { points: (curve.points || []).map((p) => ({ temp: p.temp, rpm: p.rpm })), interpolate: curve.interpolate !== false, maxRpm: fanMax, busy: busy, onPoints: (p) => mutate((n) => { n.fanProfiles[id].curve = { interpolate: curve.interpolate !== false, points: sortPoints(p) }; }), onInterpolate: (b) => mutate((n) => { n.fanProfiles[id].curve = { interpolate: b, points: curve.points || [] }; }) })) : null,
+                        mode === "curve" ? (window.SP_REACT.createElement(CurveEditor, { points: (curve.points || []).map((p) => ({ temp: p.temp, rpm: p.rpm })), interpolate: curve.interpolate !== false, maxRpm: fanMax, busy: busy, onPoints: (p) => mutate((n) => { const c = n.fanProfiles[id].curve || {}; n.fanProfiles[id].curve = { interpolate: c.interpolate !== false, points: sortPoints(p) }; }), onInterpolate: (b) => mutate((n) => { const c = n.fanProfiles[id].curve || { points: [] }; n.fanProfiles[id].curve = { interpolate: b, points: c.points || [] }; }) })) : null,
                         mode === "auto" ? (window.SP_REACT.createElement("div", { style: { opacity: 0.7, fontSize: "0.85em", margin: "4px 0" } }, "Applying this profile hands the fan back to SteamOS.")) : null,
                         window.SP_REACT.createElement("div", { style: { marginTop: "10px" } },
                             window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => { mutate((n) => { delete n.fanProfiles[id]; }); setSelFan(null); } }, "Delete profile")))));
@@ -1065,6 +1065,9 @@
         const [busy, setBusy] = react.useState(false);
         const [msg, setMsg] = react.useState("");
         const [dirty, setDirty] = react.useState(false);
+        // Mirror `busy` so the live poll can skip while a save/apply is in flight.
+        const busyRef = react.useRef(false);
+        react.useEffect(() => { busyRef.current = busy; }, [busy]);
         function loadFrom(c) {
             const s = c.settings || {};
             setCfg(c);
@@ -1082,6 +1085,8 @@
         react.useEffect(() => {
             let stop = false;
             function tick() {
+                if (busyRef.current)
+                    return; // don't poll over an in-flight save/apply
                 call("get_state", {})
                     .then((st) => {
                     if (stop || !st || !st.fan)

@@ -13,6 +13,7 @@ import os
 import re
 import glob
 import time
+import subprocess
 
 # RetroDECK PCSX2 config root (Flatpak) — the default install location.
 PCSX2_DIR = os.path.expanduser(
@@ -218,17 +219,29 @@ def is_docked():
     return external_display_connected()
 
 
+_pcsx2_cache = (-1e9, False)
+_PCSX2_TTL = 2.0
+
+
 def pcsx2_running():
-    for pid in os.listdir("/proc"):
-        if not pid.isdigit():
-            continue
-        try:
-            with open("/proc/%s/comm" % pid) as f:
-                if "pcsx2" in f.read().strip().lower():
-                    return True
-        except OSError:
-            pass
-    return False
+    """Whether a PCSX2 process is running. Uses `pgrep` (one fast fork) with a
+    short TTL cache instead of walking all of /proc — this is on the state-poll
+    hot path (every 1.5–4s) and the old scan opened hundreds of files per call."""
+    global _pcsx2_cache
+    ts, val = _pcsx2_cache
+    now = time.monotonic()
+    if (now - ts) < _PCSX2_TTL:
+        return val
+    try:
+        # No -x: match the process name *containing* "pcsx2" (e.g. pcsx2-qt),
+        # case-insensitive — same semantics as the old /proc/<pid>/comm scan.
+        val = subprocess.run(["pgrep", "-i", "pcsx2"], timeout=5,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        val = False
+    _pcsx2_cache = (now, val)
+    return val
 
 
 def suggested_profile():
@@ -293,6 +306,15 @@ def apply_profile(name, force=False):
         os.replace(tmp, MAIN_INI)
     except OSError as e:
         return False, "Could not write PCSX2.ini: %s" % e
+
+    # Keep only the most recent few backups so they don't accumulate forever
+    # (a profile is written on every dock/undock). Stamps sort chronologically.
+    try:
+        baks = sorted(glob.glob(MAIN_INI + ".bak-padprofile-*"))
+        for old in baks[:-5]:
+            os.remove(old)
+    except OSError:
+        pass
 
     return True, "Applied '%s'. Backup: %s" % (name, os.path.basename(backup))
 

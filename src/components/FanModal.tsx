@@ -1,4 +1,4 @@
-import { VFC, useState, useEffect } from "react";
+import { VFC, useState, useEffect, useRef } from "react";
 import {
   ModalRoot,
   DialogButton,
@@ -30,6 +30,9 @@ export const FanModal: VFC<{
   const [busy, setBusy] = useState<boolean>(false);
   const [msg, setMsg] = useState<string>("");
   const [dirty, setDirty] = useState<boolean>(false);
+  // Mirror `busy` so the live poll can skip while a save/apply is in flight.
+  const busyRef = useRef(false);
+  useEffect(() => { busyRef.current = busy; }, [busy]);
 
   function loadFrom(c: Config) {
     const s = c.settings || {};
@@ -50,6 +53,7 @@ export const FanModal: VFC<{
   useEffect(() => {
     let stop = false;
     function tick() {
+      if (busyRef.current) return; // don't poll over an in-flight save/apply
       call<DockyState>("get_state", {})
         .then((st) => {
           if (stop || !st || !st.fan) return;

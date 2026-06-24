@@ -518,14 +518,15 @@ def _fan_target_for(s):
     return mode, None, temp
 
 
-def fan_apply(cfg=None):
+def fan_apply(cfg=None, ensure_stopped=True):
     """Enforce the configured fan mode once (called every tick by the loop while
     in manual/curve). Writes fan1_target for manual/curve; no-op for auto.
+    `ensure_stopped=False` skips the per-tick daemon probe on steady-state ticks.
     Returns {mode, owned, target, temp, ok, message}."""
     s = _fan_settings(cfg)
     mode, target, temp = _fan_target_for(s)
     if mode in ("manual", "curve") and target is not None:
-        ok, msg = deckops.write_fan_rpm(target)
+        ok, msg = deckops.write_fan_rpm(target, stop_daemon=ensure_stopped)
         return {"mode": mode, "owned": True, "target": target, "temp": temp,
                 "ok": ok, "message": msg}
     return {"mode": mode, "owned": False, "target": None, "temp": temp,
@@ -637,9 +638,10 @@ def apply_tdp_profile(profile_id):
         prof = (cfg.get("tdpProfiles") or {}).get(profile_id)
         if not prof:
             return {"ok": False, "message": "no such TDP profile: %s" % profile_id}
-        ok, msg = deckops.set_tdp(prof.get("watts"))  # fast sysfs write
+        watts = prof.get("watts")
+        ok, msg = deckops.set_tdp(watts)  # fast sysfs write; validates + clamps
         if ok:
-            cfg["settings"]["tdpWatts"] = prof.get("watts")
+            cfg["settings"]["tdpWatts"] = int(watts)  # store the validated value
             cfg["settings"]["tdpProfile"] = profile_id
             save_config(cfg)
     return {"ok": ok, "message": "applied TDP profile '%s'" % prof.get("name", profile_id)
