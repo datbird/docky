@@ -32,7 +32,21 @@ rather than silently discarding it.
     "<mode-id>": { "name": "Docked", "actions": ["<action-id>", ...] }
   },
   "favorites": [ { "kind": "action" | "mode", "id": "<id>" }, ... ],
-  "taskSettings": { "pcsx2_profile": { "profiles_dir": "..." } }
+  "taskSettings": { "pcsx2_profile": { "profiles_dir": "..." } },
+
+  // Saved performance presets (built in the editor's Fan / TDP tabs).
+  "fanProfiles": {
+    "<id>": {
+      "name": "Quiet",
+      "mode": "curve",                 // "curve" | "manual" | "auto"
+      "manualRpm": 3000,               // used when mode = "manual"
+      "curve": {
+        "interpolate": true,
+        "points": [ { "temp": 45, "rpm": 0 }, { "temp": 75, "rpm": 4800 } ]
+      }
+    }
+  },
+  "tdpProfiles": { "<id>": { "name": "Docked", "watts": 20 } }
 }
 ```
 
@@ -56,9 +70,18 @@ rather than silently discarding it.
 | `startupMode` | `""` | mode to run when Docky loads |
 | `sunshineEngine` | `"auto"` | `auto` / `integrated` / `decky-sunshine` / `off` |
 | `autostartSunshine` | `true` | (integrated) launch Sunshine when Docky loads |
+| `fanMode` | `"auto"` | active fan mode: `auto` / `manual` / `curve` |
+| `fanManualRpm` | `3000` | held RPM when `fanMode` = `manual` |
+| `fanCurve` | starter curve | active curve `{ interpolate, points: [{temp,rpm}] }` |
+| `fanProfile` | `""` | id of the last-applied fan profile (display only) |
+| `tdpWatts` | `15` | active/last-applied TDP cap (watts) |
+| `tdpEnforce` | `false` | re-apply the cap continuously (beats Steam's slider) |
+| `tdpProfile` | `""` | id of the last-applied TDP profile (display only) |
 
 `taskSettings` holds global, per-task-**type** settings (e.g. the PCSX2 profiles
-folder), separate from per-task fields.
+folder), separate from per-task fields. `fanProfiles` / `tdpProfiles` are saved
+presets (see [Performance](performance.md)); the `fan*` / `tdp*` settings above
+are the *active* state the background loops enforce.
 
 ## Security
 

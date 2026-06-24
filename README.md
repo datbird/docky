@@ -33,8 +33,13 @@ Trigger— an event (dock/undock, AC, controller, resume, startup) → a Mode
 - **Triggers** — run a Mode automatically on dock/undock, AC connect/disconnect,
   external-controller connect/disconnect, resume-from-sleep, or startup.
 - **Built-in dock fixes** — switch audio output, disable the built-in controller
-  so an external pad is Player 1, force gamescope composition (the docked
-  stretch fix), and set the APU TDP — all as one-tap tasks.
+  so an external pad is Player 1, and force gamescope composition (the docked
+  stretch fix) — all as one-tap tasks.
+- **Fan & TDP control** — a temperature → RPM fan **curve** (with a live graph),
+  manual RPM, or auto; an APU **TDP** cap with optional continuous enforcement;
+  reusable **fan/TDP profiles** you can apply from the panel, a task, or a Mode;
+  and a one-tap **"hand control back to SteamOS"**. See
+  [Performance](docs/performance.md).
 - **Favorites** — pin the actions/modes you use most to the panel; stateful ones
   (like force-composition) show a live on/off LED.
 - **Sunshine** — install/update from Flathub, start/stop/restart, set the
@@ -64,6 +69,16 @@ Trigger— an event (dock/undock, AC, controller, resume, startup) → a Mode
     <td valign="top" align="center">
       <img src="docs/images/pair.png" width="340"><br>
       <sub>Moonlight pairing & paired-device management</sub>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top" align="center">
+      <img src="docs/images/fan-curve.png" width="300"><br>
+      <sub>Fan control — Auto / Curve / Manual, live temp·RPM, editable curve</sub>
+    </td>
+    <td valign="top" align="center">
+      <img src="docs/images/tdp.png" width="240"><br>
+      <sub>TDP — manual watts, "keep enforced", profiles</sub>
     </td>
   </tr>
 </table>
@@ -102,6 +117,7 @@ Dock the Deck and the `Docked` mode runs automatically. Pin either mode as a
 |---|---|
 | [Concepts](docs/concepts.md) | Tasks → Actions → Modes → Triggers → Favorites |
 | [Task reference](docs/tasks.md) | Every task type, its fields, and examples |
+| [Performance](docs/performance.md) | Fan curve/manual, TDP cap + enforcement, profiles |
 | [Triggers](docs/triggers.md) | All triggers, dock detection, mode mapping |
 | [Sunshine](docs/sunshine.md) | Engine selection, install/update, pairing, encoder, composition |
 | [Configuration](docs/configuration.md) | `config.json` / `state.json` reference |
