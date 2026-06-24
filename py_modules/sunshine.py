@@ -73,8 +73,28 @@ def _launch_env():
     return env
 
 
+# Decky's plugin_loader is a PyInstaller binary that injects its bundled libs via
+# LD_LIBRARY_PATH (a /tmp/_MEI… dir) and possibly LD_PRELOAD. Those leak into any
+# shell we spawn (e.g. `su deck -c …xprop…`), so /usr/bin/bash loads Decky's
+# incompatible libreadline and dies ("undefined symbol: rl_trim_arg_from_keyseq").
+# Restore each var from its PyInstaller-saved <VAR>_ORIG, else drop it.
+_PYI_VARS = ("LD_LIBRARY_PATH", "LD_PRELOAD", "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES")
+
+
+def _clean_env():
+    env = os.environ.copy()
+    for var in _PYI_VARS:
+        orig = env.get(var + "_ORIG")
+        if orig is not None:
+            env[var] = orig
+        else:
+            env.pop(var, None)
+    return env
+
+
 def _flatpak(args, capture=True):
-    return subprocess.run(["flatpak"] + args, capture_output=capture, text=True)
+    return subprocess.run(["flatpak"] + args, capture_output=capture, text=True,
+                          env=_clean_env())
 
 
 def is_installed():
@@ -187,7 +207,7 @@ def set_composition(enabled):
            "-set GAMESCOPE_COMPOSITE_FORCE " + value)
     try:
         res = subprocess.run(["su", SESSION_USER, "-c", cmd],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, env=_clean_env())
     except OSError as e:
         return False, "could not set composition: %s" % e
     if res.returncode == 0:
@@ -200,7 +220,7 @@ def get_composition():
     cmd = "DISPLAY=:0 xprop -root GAMESCOPE_COMPOSITE_FORCE"
     try:
         res = subprocess.run(["su", SESSION_USER, "-c", cmd],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, env=_clean_env())
     except OSError:
         return False
     out = (res.stdout or "").strip()
