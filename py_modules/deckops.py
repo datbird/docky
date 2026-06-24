@@ -10,7 +10,10 @@ user since the PipeWire socket lives in that user's runtime dir.
 import os
 import re
 import glob
+import shlex
 import subprocess
+
+from sysenv import clean_env as _clean_env  # strip Decky's PyInstaller LD_LIBRARY_PATH
 
 SESSION_USER = "deck"
 SESSION_UID = 1000
@@ -19,27 +22,17 @@ SESSION_UID = 1000
 DECK_CONTROLLER_VID = "28de"
 DECK_CONTROLLER_PID = "1205"
 
-# Decky's plugin_loader injects PyInstaller libs via LD_LIBRARY_PATH (/tmp/_MEI…);
-# strip them so shelled-out binaries use system libraries (see sunshine.py).
-_PYI_VARS = ("LD_LIBRARY_PATH", "LD_PRELOAD", "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES")
 
-
-def _clean_env():
-    env = os.environ.copy()
-    for var in _PYI_VARS:
-        orig = env.get(var + "_ORIG")
-        if orig is not None:
-            env[var] = orig
-        else:
-            env.pop(var, None)
-    return env
-
-
-def _su_deck(cmd):
-    """Run a shell command as the session user with their audio runtime dir."""
+def _su_deck(cmd, timeout=15):
+    """Run a shell command as the session user with their audio runtime dir.
+    On timeout returns a non-zero code so callers fail soft."""
     full = "XDG_RUNTIME_DIR=/run/user/%d %s" % (SESSION_UID, cmd)
-    res = subprocess.run(["su", SESSION_USER, "-c", full],
-                         capture_output=True, text=True, env=_clean_env())
+    try:
+        res = subprocess.run(["su", SESSION_USER, "-c", full],
+                             capture_output=True, text=True, env=_clean_env(),
+                             timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 124, "", "timed out"
     return res.returncode, (res.stdout or ""), (res.stderr or "")
 
 
@@ -83,7 +76,8 @@ def set_audio_output(target):
             break
     if not match:
         return False, "no audio device matching '%s'" % target
-    code, _o, err = _su_deck("pactl set-default-sink '%s'" % match)
+    q = shlex.quote(match)  # sink names come from pactl but quote defensively
+    code, _o, err = _su_deck("pactl set-default-sink " + q)
     if code != 0:
         return False, (err or "could not set default sink").strip()[:200]
     # Move already-playing streams onto the new default.
@@ -92,7 +86,7 @@ def set_audio_output(target):
         for line in out.splitlines():
             sid = line.split("\t")[0].strip()
             if sid.isdigit():
-                _su_deck("pactl move-sink-input %s '%s'" % (sid, match))
+                _su_deck("pactl move-sink-input %s %s" % (sid, q))
     return True, "audio output -> %s" % match
 
 
@@ -158,8 +152,8 @@ def external_controller_present():
     for block in data.split("\n\n"):
         if not block.strip():
             continue
-        has_js = sysfs = vendor = ""
         has_js = False
+        sysfs = vendor = ""
         for line in block.splitlines():
             if line.startswith("H:") and re.search(r"\bjs\d", line):
                 has_js = True
@@ -203,12 +197,15 @@ def set_tdp(watts):
     if not cap:
         return False, "no amdgpu power cap on this device"
     uw = w * 1_000_000
-    cap_max = cap + "_max"
     try:
-        if os.path.exists(cap_max):
-            with open(cap_max) as f:
-                mx = int(f.read().strip())
-            uw = min(uw, mx)
+        def _read(p):
+            with open(p) as f:
+                return int(f.read().strip())
+        if os.path.exists(cap + "_max"):
+            uw = min(uw, _read(cap + "_max"))
+        # Don't let a too-low cap throttle the APU into the ground.
+        if os.path.exists(cap + "_min"):
+            uw = max(uw, _read(cap + "_min"))
         with open(cap, "w") as f:
             f.write(str(uw))
     except (OSError, ValueError) as e:
@@ -224,7 +221,10 @@ def flatpak_update(app=""):
     if app:
         args.append(app)
     try:
-        res = subprocess.run(args, capture_output=True, text=True, env=_clean_env())
+        res = subprocess.run(args, capture_output=True, text=True, env=_clean_env(),
+                             timeout=600)
+    except subprocess.TimeoutExpired:
+        return False, "flatpak update timed out"
     except OSError as e:
         return False, "flatpak not available: %s" % e
     if res.returncode == 0:

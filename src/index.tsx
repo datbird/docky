@@ -301,7 +301,7 @@ const Content: VFC = () => {
             <IconButton
               label="Pair"
               flex={2}
-              disabled={busy}
+              disabled={busy || !(state.sunshine && state.sunshine.running)}
               onClick={() =>
                 showModal(
                   <PairModal

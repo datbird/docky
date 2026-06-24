@@ -109,7 +109,8 @@ const AddTask: VFC<{
     def.fields.forEach((f) => {
       const val = vals[f.key];
       if (f.kind === "bool") {
-        if (val) task[f.key] = true;
+        // Honor the field's default when the user never touched the toggle.
+        if (val ?? f.def) task[f.key] = true;
       } else if (val !== undefined && val !== "") {
         task[f.key] = val;
       } else if (f.kind === "select" && f.options && f.options.length) {
@@ -130,7 +131,7 @@ const AddTask: VFC<{
         <ToggleField
           key={f.key}
           label={f.label}
-          checked={!!vals[f.key]}
+          checked={vals[f.key] ?? !!f.def}
           onChange={(val) => setField(f.key, val)}
         />
       );
@@ -377,6 +378,15 @@ const MiniButton: VFC<{ disabled?: boolean; width: string; onClick: () => void; 
   </DialogButton>
 );
 
+// A label/value row in the Sunshine tab (module-scope so it isn't remounted on
+// every render of the editor).
+const InfoRow: VFC<{ label: string; value: string }> = ({ label, value }) => (
+  <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+    <span style={{ opacity: 0.7 }}>{label}</span>
+    <span style={{ fontWeight: 600 }}>{value || "—"}</span>
+  </div>
+);
+
 export const EditorModal: VFC<{
   closeModal?: () => void;
   initialConfig: Config;
@@ -456,7 +466,7 @@ export const EditorModal: VFC<{
           toast("Configuration saved");
           if (r.state) onSaved(r.state);
         } else {
-          setMsg("Save failed: " + (r && r.error));
+          setMsg("Save failed: " + ((r && r.error) || "unknown error"));
           toast("Save failed");
         }
       })
@@ -729,7 +739,7 @@ export const EditorModal: VFC<{
             const tag = f.kind === "action" ? "Action" : "Mode";
             return (
               <Field
-                key={key(f) + "_" + i}
+                key={key(f)}
                 label={tag + ": " + name + (item ? "" : " (missing)")}
                 bottomSeparator="none"
               >
@@ -785,12 +795,6 @@ export const EditorModal: VFC<{
   // ---- SUNSHINE TAB ----
   function renderSunshine() {
     const info = sunInfo;
-    const InfoRow: VFC<{ label: string; value: string }> = ({ label, value }) => (
-      <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
-        <span style={{ opacity: 0.7 }}>{label}</span>
-        <span style={{ fontWeight: 600 }}>{value || "—"}</span>
-      </div>
-    );
     const engine = cfg.settings.sunshineEngine || "auto";
     const deckyInstalled =
       (info && info.deckySunshineInstalled) ||

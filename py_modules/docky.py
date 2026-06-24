@@ -20,19 +20,18 @@ import tempfile
 import time
 import glob
 
+import threading
+
 import padswap  # proven PCSX2 input-profile logic
 import sunshine  # Docky's own Sunshine flatpak control
 import deckops   # built-in Steam Deck dock fixes (audio/controller/tdp/flatpak)
+from sysenv import clean_env as _clean_env  # strip Decky's PyInstaller LD_LIBRARY_PATH
 
 CONFIG_DIR = os.path.expanduser("~/.config/docky")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 STATE_PATH = os.path.join(CONFIG_DIR, "state.json")
 
 DEFAULT_TIMEOUT = 60
-
-# Built-in task type registry is implemented in run_task() below.
-TASK_TYPES = ["pcsx2_profile", "copy", "move", "symlink", "write",
-              "delete", "bash", "python", "run"]
 
 
 # ---------------- config / state ----------------
@@ -129,8 +128,15 @@ def save_config(cfg):
     _chown_to_parent(CONFIG_PATH)
 
 
+# state.json is read-modify-written by both the trigger watcher and frontend
+# calls (some via asyncio.to_thread, i.e. a worker thread). Serialize updates so a
+# full-object save can't clobber a field another writer just set (e.g. the watcher
+# overwriting an activeMode that a fired trigger just wrote).
+_state_lock = threading.Lock()
+
+
 def load_state():
-    return _read_json(STATE_PATH, {"activeMode": None, "lastDock": None})
+    return _read_json(STATE_PATH, {})
 
 
 def save_state(state):
@@ -141,6 +147,16 @@ def save_state(state):
     os.replace(tmp, STATE_PATH)
     _chown_to_parent(CONFIG_DIR)
     _chown_to_parent(STATE_PATH)
+
+
+def update_state(**fields):
+    """Merge `fields` into state.json atomically under a lock — the safe way to
+    change a few keys without clobbering concurrent writers."""
+    with _state_lock:
+        st = load_state()
+        st.update(fields)
+        save_state(st)
+        return st
 
 
 # ---------------- helpers ----------------
@@ -163,26 +179,6 @@ def _chown_to_parent(path):
         pass
 
 
-
-
-# Decky's plugin_loader is a PyInstaller binary; it injects its own bundled
-# libraries via LD_LIBRARY_PATH (a /tmp/_MEI… dir) and may set LD_PRELOAD. Those
-# leak into anything we shell out to — e.g. /usr/bin/bash then loads Decky's
-# incompatible libreadline and dies with "undefined symbol: rl_trim_arg_from_keyseq".
-# PyInstaller stashes the pre-injection value as <VAR>_ORIG; restore it if present,
-# otherwise drop the var so system binaries use system libraries.
-_PYI_VARS = ("LD_LIBRARY_PATH", "LD_PRELOAD", "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES")
-
-
-def _clean_env():
-    env = os.environ.copy()
-    for var in _PYI_VARS:
-        orig = env.get(var + "_ORIG")
-        if orig is not None:
-            env[var] = orig
-        else:
-            env.pop(var, None)
-    return env
 
 
 def _run_proc(argv, shell=False, cwd=None, timeout=DEFAULT_TIMEOUT, env=None):
@@ -388,9 +384,7 @@ def activate_mode(mode_id, allow_running_emu=True, cfg=None, mark_active=True):
         if not ar["ok"]:
             ok_all = False
     if mark_active:
-        st = load_state()
-        st["activeMode"] = mode_id
-        save_state(st)
+        update_state(activeMode=mode_id)
     return {"mode": mode_id, "name": mode.get("name", mode_id),
             "ok": ok_all, "actions": action_results}
 
@@ -437,10 +431,12 @@ def is_docked(cfg=None):
     return all(conds) if conds else False
 
 
-def suggested_mode(cfg=None):
+def suggested_mode(cfg=None, docked=None):
     cfg = cfg or load_config()
     s = cfg["settings"]
-    return s["dockedMode"] if is_docked(cfg) else s["undockedMode"]
+    if docked is None:
+        docked = is_docked(cfg)
+    return s["dockedMode"] if docked else s["undockedMode"]
 
 
 def _task_bool_status(task):
@@ -500,10 +496,12 @@ def _resolved_favorites(cfg):
 def get_state():
     cfg = load_config()
     st = load_state()
+    docked = is_docked(cfg)  # compute once; reuse for suggestedMode
+    plugins = installed_plugins()
     return {
         "settings": cfg["settings"],
-        "docked": is_docked(cfg),
-        "suggestedMode": suggested_mode(cfg),
+        "docked": docked,
+        "suggestedMode": suggested_mode(cfg, docked),
         "activeMode": st.get("activeMode"),
         "modes": [{"id": k, "name": v.get("name", k),
                    "actions": v.get("actions", [])}
@@ -514,9 +512,10 @@ def get_state():
         "favorites": _resolved_favorites(cfg),
         "pcsx2_profiles": padswap.list_profiles(),
         "pcsx2_running": padswap.pcsx2_running(),
-        "installed_plugins": installed_plugins(),
+        "installed_plugins": plugins,
         "sunshine": dict(sunshine.status(), credsStored=bool(st.get("sunshineAuth")),
-                         engine=sunshine_engine(), resolvedEngine=resolved_engine()),
+                         engine=sunshine_engine(cfg),
+                         resolvedEngine=resolved_engine(cfg, plugins)),
         "config_path": CONFIG_PATH,
     }
 
@@ -524,19 +523,19 @@ def get_state():
 DECKY_SUNSHINE = "decky-sunshine"
 
 
-def sunshine_engine():
+def sunshine_engine(cfg=None):
     """The raw sunshineEngine setting ('auto' by default)."""
-    eng = (load_config().get("settings", {}) or {}).get("sunshineEngine")
+    eng = ((cfg or load_config()).get("settings", {}) or {}).get("sunshineEngine")
     return eng if eng in ("auto", "integrated", DECKY_SUNSHINE, "off") else "auto"
 
 
-def resolved_engine():
+def resolved_engine(cfg=None, plugins=None):
     """The engine actually in effect. 'auto' detects: the decky-sunshine plugin
     wins; else an installed Sunshine flatpak means integrated; else 'off'."""
-    eng = sunshine_engine()
+    eng = sunshine_engine(cfg)
     if eng != "auto":
         return eng
-    if DECKY_SUNSHINE in installed_plugins():
+    if DECKY_SUNSHINE in (plugins if plugins is not None else installed_plugins()):
         return DECKY_SUNSHINE
     if sunshine.is_installed():
         return "integrated"
@@ -561,8 +560,8 @@ def _eng_restart():
     if eng == "off":
         return False, "Sunshine isn't set up"
     if eng == DECKY_SUNSHINE:
-        sunshine.stop()
-        return True, "Stopped — relaunch from decky-sunshine"
+        ok, msg = sunshine.stop()
+        return ok, (msg + " — relaunch from decky-sunshine") if ok else msg
     return sunshine.restart()
 
 
@@ -629,10 +628,7 @@ def set_sunshine_login(username, password):
     """Set/reset Sunshine's admin login and remember it for pairing."""
     ok, msg, auth = sunshine.set_login(username, password)
     if ok and auth:
-        st = load_state()
-        st["sunshineUser"] = username
-        st["sunshineAuth"] = auth
-        save_state(st)
+        update_state(sunshineUser=username, sunshineAuth=auth)
     return {"ok": ok, "message": msg}
 
 
@@ -675,10 +671,6 @@ def set_autostart_sunshine(enabled):
     return cfg["settings"]
 
 
-def set_auto_dock(enabled):
-    return set_trigger("autoDockDetection", enabled)
-
-
 # Trigger toggle keys -> the state field they baseline + how to read it now, so
 # enabling a trigger acts only on the NEXT change rather than firing immediately.
 _TRIGGER_BASELINE = {
@@ -698,7 +690,5 @@ def set_trigger(key, enabled):
     base = _TRIGGER_BASELINE.get(key)
     if base:
         field, read = base
-        st = load_state()
-        st[field] = read(cfg)
-        save_state(st)
+        update_state(**{field: read(cfg)})
     return cfg["settings"]

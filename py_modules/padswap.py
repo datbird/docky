@@ -32,7 +32,8 @@ def configure(profiles_dir=None):
     global PCSX2_DIR, MAIN_INI, PROFILES_DIR
     if not profiles_dir:
         return
-    PROFILES_DIR = os.path.expanduser(profiles_dir)
+    # normpath so a trailing slash doesn't make dirname() return the dir itself.
+    PROFILES_DIR = os.path.normpath(os.path.expanduser(profiles_dir))
     PCSX2_DIR = os.path.dirname(PROFILES_DIR)
     MAIN_INI = os.path.join(PCSX2_DIR, "inis", "PCSX2.ini")
 

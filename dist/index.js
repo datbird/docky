@@ -346,7 +346,8 @@
             def.fields.forEach((f) => {
                 const val = vals[f.key];
                 if (f.kind === "bool") {
-                    if (val)
+                    // Honor the field's default when the user never touched the toggle.
+                    if (val ?? f.def)
                         task[f.key] = true;
                 }
                 else if (val !== undefined && val !== "") {
@@ -365,7 +366,7 @@
         const valid = pluginOk(def) && (type === "pcsx2_profile" ? profiles.length > 0 : true);
         const fieldEls = def.fields.map((f) => {
             if (f.kind === "bool") {
-                return (window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { key: f.key, label: f.label, checked: !!vals[f.key], onChange: (val) => setField(f.key, val) }));
+                return (window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { key: f.key, label: f.label, checked: vals[f.key] ?? !!f.def, onChange: (val) => setField(f.key, val) }));
             }
             if (f.kind === "profile") {
                 if (!profiles.length) {
@@ -463,6 +464,11 @@
     };
     // Small fixed-width button for the favorite reorder/remove controls.
     const MiniButton = ({ disabled, width, onClick, children, }) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: disabled, onClick: onClick, style: { minWidth: 0, width, padding: "6px 4px", textAlign: "center" } }, children));
+    // A label/value row in the Sunshine tab (module-scope so it isn't remounted on
+    // every render of the editor).
+    const InfoRow = ({ label, value }) => (window.SP_REACT.createElement("div", { style: { display: "flex", justifyContent: "space-between", padding: "4px 0" } },
+        window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, label),
+        window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, value || "—")));
     const EditorModal = ({ closeModal, initialConfig, profiles, installedPlugins, onSaved }) => {
         const [cfg, setCfg] = react.useState(clone(initialConfig));
         const [dirty, setDirty] = react.useState(false);
@@ -535,7 +541,7 @@
                         onSaved(r.state);
                 }
                 else {
-                    setMsg("Save failed: " + (r && r.error));
+                    setMsg("Save failed: " + ((r && r.error) || "unknown error"));
                     toast("Save failed");
                 }
             })
@@ -693,7 +699,7 @@
                     const item = f.kind === "action" ? cfgActions[f.id] : cfgModes[f.id];
                     const name = item ? item.name || f.id : f.id;
                     const tag = f.kind === "action" ? "Action" : "Mode";
-                    return (window.SP_REACT.createElement(deckyFrontendLib.Field, { key: key(f) + "_" + i, label: tag + ": " + name + (item ? "" : " (missing)"), bottomSeparator: "none" },
+                    return (window.SP_REACT.createElement(deckyFrontendLib.Field, { key: key(f), label: tag + ": " + name + (item ? "" : " (missing)"), bottomSeparator: "none" },
                         window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "4px" } },
                             window.SP_REACT.createElement(MiniButton, { width: "3em", disabled: busy || i === 0, onClick: () => swap(i, i - 1) }, "\u25B2"),
                             window.SP_REACT.createElement(MiniButton, { width: "3em", disabled: busy || i === favs.length - 1, onClick: () => swap(i, i + 1) }, "\u25BC"),
@@ -713,9 +719,6 @@
         // ---- SUNSHINE TAB ----
         function renderSunshine() {
             const info = sunInfo;
-            const InfoRow = ({ label, value }) => (window.SP_REACT.createElement("div", { style: { display: "flex", justifyContent: "space-between", padding: "4px 0" } },
-                window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, label),
-                window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, value || "—")));
             const engine = cfg.settings.sunshineEngine || "auto";
             const deckyInstalled = (info && info.deckySunshineInstalled) ||
                 installedPlugins.indexOf("decky-sunshine") !== -1;
@@ -850,7 +853,7 @@
             })
                 .catch((e) => {
                 setBusy(false);
-                setMsg("Error: " + e);
+                setMsg("Error: " + errText(e));
             });
         }
         function setEnabled(uuid, enabled) {
@@ -864,7 +867,7 @@
             })
                 .catch((e) => {
                 setBusy(false);
-                setMsg("Error: " + e);
+                setMsg("Error: " + errText(e));
             });
         }
         function unpairAll() {
@@ -878,7 +881,7 @@
             })
                 .catch((e) => {
                 setBusy(false);
-                setMsg("Error: " + e);
+                setMsg("Error: " + errText(e));
             });
         }
         function saveLogin() {
@@ -896,7 +899,7 @@
             })
                 .catch((e) => {
                 setBusy(false);
-                setMsg("Error: " + e);
+                setMsg("Error: " + errText(e));
             });
         }
         function doPair() {
@@ -913,7 +916,7 @@
             })
                 .catch((e) => {
                 setBusy(false);
-                setMsg("Error: " + e);
+                setMsg("Error: " + errText(e));
             });
         }
         return (window.SP_REACT.createElement(deckyFrontendLib.ModalRoot, { onCancel: closeModal, onEscKeypress: closeModal },
@@ -944,7 +947,7 @@
                     window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: unpairAll }, "Unpair all"))) : null)),
             msg ? window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.85, marginTop: "8px" } }, msg) : null,
             window.SP_REACT.createElement("div", { style: { marginTop: "10px" } },
-                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => closeModal && closeModal() }, "Close"))));
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { onClick: () => closeModal && closeModal() }, "Close"))));
     };
 
     const Row = ({ label, value }) => (window.SP_REACT.createElement("div", { style: {
@@ -1154,7 +1157,7 @@
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Sunshine" },
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px" } },
-                        window.SP_REACT.createElement(IconButton, { label: "Pair", flex: 2, disabled: busy, onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(PairModal, { credsStored: !!(state.sunshine && state.sunshine.credsStored), onState: (st) => st && setState(st) })) },
+                        window.SP_REACT.createElement(IconButton, { label: "Pair", flex: 2, disabled: busy || !(state.sunshine && state.sunshine.running), onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(PairModal, { credsStored: !!(state.sunshine && state.sunshine.credsStored), onState: (st) => st && setState(st) })) },
                             window.SP_REACT.createElement(DockIcon, null)),
                         window.SP_REACT.createElement(IconButton, { disabled: busy || !(state.sunshine && state.sunshine.running), onClick: () => sunshineControl("sunshine_restart", "Restarting") },
                             window.SP_REACT.createElement(RestartIcon, null)),

@@ -20,9 +20,13 @@ import ssl
 import json
 import time
 import base64
+import shlex
+import shutil
 import subprocess
 import urllib.request
 import urllib.error
+
+from sysenv import clean_env as _clean_env  # strip Decky's PyInstaller LD_LIBRARY_PATH
 
 APP_ID = "dev.lizardbyte.app.Sunshine"
 
@@ -73,41 +77,44 @@ def _launch_env():
     return env
 
 
-# Decky's plugin_loader is a PyInstaller binary that injects its bundled libs via
-# LD_LIBRARY_PATH (a /tmp/_MEI… dir) and possibly LD_PRELOAD. Those leak into any
-# shell we spawn (e.g. `su deck -c …xprop…`), so /usr/bin/bash loads Decky's
-# incompatible libreadline and dies ("undefined symbol: rl_trim_arg_from_keyseq").
-# Restore each var from its PyInstaller-saved <VAR>_ORIG, else drop it.
-_PYI_VARS = ("LD_LIBRARY_PATH", "LD_PRELOAD", "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES")
+def _flatpak(args, capture=True, timeout=120):
+    """Run `flatpak <args>` with a clean env and a timeout. On timeout returns a
+    CompletedProcess with a non-zero return code so callers fail soft rather than
+    hang the (root) backend."""
+    try:
+        return subprocess.run(["flatpak"] + args, capture_output=capture, text=True,
+                              env=_clean_env(), timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(args, 124, "", "flatpak timed out")
+    except OSError as e:
+        return subprocess.CompletedProcess(args, 127, "", "flatpak unavailable: %s" % e)
 
 
-def _clean_env():
-    env = os.environ.copy()
-    for var in _PYI_VARS:
-        orig = env.get(var + "_ORIG")
-        if orig is not None:
-            env[var] = orig
-        else:
-            env.pop(var, None)
-    return env
+# is_installed/installed_scope are hit on every get_state poll; each is a flatpak
+# subprocess. Cache the result briefly (the install state rarely changes) and
+# invalidate explicitly after an install/update.
+_SCOPE_TTL = 15.0
+_scope_cache = {"ts": -1e9, "val": None}
 
 
-def _flatpak(args, capture=True):
-    return subprocess.run(["flatpak"] + args, capture_output=capture, text=True,
-                          env=_clean_env())
+def _invalidate_scope_cache():
+    _scope_cache["ts"] = -1e9
 
 
-def installed_scope():
+def installed_scope(force=False):
     """'--system', '--user', or None — where the Sunshine flatpak is installed.
     Checks system first (Docky's + decky-sunshine's default), then a per-user
-    install someone may have done manually."""
+    install someone may have done manually. Result is cached for a few seconds."""
+    now = time.monotonic()
+    if not force and (now - _scope_cache["ts"]) < _SCOPE_TTL:
+        return _scope_cache["val"]
+    val = None
     for scope in ("--system", "--user"):
-        try:
-            if _flatpak(["info", scope, APP_ID]).returncode == 0:
-                return scope
-        except OSError:
-            return None
-    return None
+        if _flatpak(["info", scope, APP_ID]).returncode == 0:
+            val = scope
+            break
+    _scope_cache.update(ts=now, val=val)
+    return val
 
 
 def is_installed():
@@ -119,9 +126,9 @@ def is_running():
     # plugin's minimal env (it missed a clearly-running instance); the server's
     # process name is a stable, env-independent signal.
     try:
-        return subprocess.run(["pgrep", "-x", "sunshine"],
+        return subprocess.run(["pgrep", "-x", "sunshine"], timeout=5,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return False
 
 
@@ -136,33 +143,40 @@ def ensure_installed():
     install never depends on remote state another tool happened to leave behind."""
     if is_installed():
         return True, "Sunshine already installed"
+    _ensure_flathub()
     try:
-        # Guarantee the flathub system remote exists before installing from it.
-        subprocess.run(
-            ["flatpak", "remote-add", "--if-not-exists", "--system", "flathub", FLATHUB_REPO],
-            capture_output=True, text=True, env=_clean_env(),
-        )
         res = _flatpak(["install", "--system", "--noninteractive", "--or-update",
-                        "flathub", APP_ID])
+                        "flathub", APP_ID], timeout=600)
     except OSError as e:
         return False, "flatpak not available: %s" % e
+    _invalidate_scope_cache()
     if res.returncode == 0:
         return True, "Sunshine installed"
     return False, (res.stderr or res.stdout or "install failed").strip()[:300]
+
+
+def _ensure_flathub():
+    """Add the flathub system remote if it isn't already configured (no-op if it
+    is). Best-effort: failures are tolerated, the install/info call reports them."""
+    try:
+        subprocess.run(
+            ["flatpak", "remote-add", "--if-not-exists", "--system", "flathub", FLATHUB_REPO],
+            capture_output=True, text=True, env=_clean_env(), timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def update():
     """Update the installed Sunshine flatpak to the latest on flathub."""
     if not is_installed():
         return False, "Sunshine is not installed"
+    _ensure_flathub()
     try:
-        subprocess.run(
-            ["flatpak", "remote-add", "--if-not-exists", "--system", "flathub", FLATHUB_REPO],
-            capture_output=True, text=True, env=_clean_env(),
-        )
-        res = _flatpak(["update", "--system", "--noninteractive", APP_ID])
+        res = _flatpak(["update", "--system", "--noninteractive", APP_ID], timeout=600)
     except OSError as e:
         return False, "flatpak not available: %s" % e
+    _invalidate_scope_cache()
     if res.returncode == 0:
         return True, "Sunshine updated"
     return False, (res.stderr or res.stdout or "update failed").strip()[:300]
@@ -173,8 +187,8 @@ def _parse_info(args):
     out = {}
     try:
         res = subprocess.run(["flatpak"] + args, capture_output=True, text=True,
-                             env=_clean_env())
-    except OSError:
+                             env=_clean_env(), timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
         return out
     if res.returncode != 0:
         return out
@@ -189,13 +203,7 @@ def version_info():
     """Report installed vs latest-on-flathub, and whether an update is available.
     Compares commits (robust) for update detection; versions are for display."""
     # Make sure flathub exists so 'latest' resolves even on a fresh machine.
-    try:
-        subprocess.run(
-            ["flatpak", "remote-add", "--if-not-exists", "--system", "flathub", FLATHUB_REPO],
-            capture_output=True, text=True, env=_clean_env(),
-        )
-    except OSError:
-        pass
+    _ensure_flathub()
     scope = installed_scope()
     inst = scope is not None
     local = _parse_info(["info", scope, APP_ID]) if inst else {}
@@ -210,16 +218,25 @@ def version_info():
 
 
 def _prepare_bwrap():
-    """Create the root-owned, setuid bwrap copy flatpak will use for capture."""
+    """Create the root-owned, setuid bwrap copy flatpak will use for capture.
+
+    Security: never bless a pre-existing file with setuid-root (an unprivileged
+    user could pre-plant a malicious binary there — a setuid TOCTOU). We make the
+    directory root-owned and remove any existing copy, then copy fresh from the
+    real /usr/bin/bwrap and set perms on the file we just created."""
     dst = _bwrap_copy()
+    d = os.path.dirname(dst)
     try:
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        if not os.path.exists(dst):
-            subprocess.run(["cp", "/usr/bin/bwrap", dst], check=True)
-        subprocess.run(["chown", "root:root", dst], check=True)
-        subprocess.run(["chmod", "u+s", dst], check=True)
+        os.makedirs(d, exist_ok=True)
+        os.chown(d, 0, 0)          # root-owned so the user can't write into it
+        os.chmod(d, 0o755)
+        if os.path.lexists(dst):    # discard anything already there
+            os.remove(dst)
+        shutil.copyfile("/usr/bin/bwrap", dst)
+        os.chown(dst, 0, 0)
+        os.chmod(dst, 0o4755)      # setuid root
         return True
-    except (OSError, subprocess.CalledProcessError):
+    except OSError:
         return False
 
 
@@ -269,8 +286,11 @@ def stop():
         pass
     # flatpak kill can miss it in the minimal env; fall back to a direct kill.
     if not _wait(lambda: not is_running(), tries=12):
-        subprocess.run(["pkill", "-9", "-x", "sunshine"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            subprocess.run(["pkill", "-9", "-x", "sunshine"], timeout=5,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     if _wait(lambda: not is_running()):
         return True, "Sunshine stopped"
     return False, "Sunshine still running"
@@ -290,9 +310,9 @@ def set_composition(enabled):
     cmd = ("DISPLAY=:0 xprop -root -f GAMESCOPE_COMPOSITE_FORCE 32c "
            "-set GAMESCOPE_COMPOSITE_FORCE " + value)
     try:
-        res = subprocess.run(["su", SESSION_USER, "-c", cmd],
+        res = subprocess.run(["su", SESSION_USER, "-c", cmd], timeout=10,
                              capture_output=True, text=True, env=_clean_env())
-    except OSError as e:
+    except (OSError, subprocess.TimeoutExpired) as e:
         return False, "could not set composition: %s" % e
     if res.returncode == 0:
         return True, "composition forced %s" % ("on" if enabled else "off")
@@ -303,15 +323,17 @@ def get_composition():
     """Return True if GAMESCOPE_COMPOSITE_FORCE is currently set nonzero on :0."""
     cmd = "DISPLAY=:0 xprop -root GAMESCOPE_COMPOSITE_FORCE"
     try:
-        res = subprocess.run(["su", SESSION_USER, "-c", cmd],
+        res = subprocess.run(["su", SESSION_USER, "-c", cmd], timeout=10,
                              capture_output=True, text=True, env=_clean_env())
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return False
     out = (res.stdout or "").strip()
     if "=" not in out:  # "...: not found." when the atom is unset
         return False
+    # Value is after '=', possibly a comma-separated 32c array ("1, 0, ...").
+    first = out.rsplit("=", 1)[1].split(",")[0].strip()
     try:
-        return int(out.rsplit("=", 1)[1].strip()) != 0
+        return int(first) != 0
     except ValueError:
         return False
 

@@ -1,20 +1,6 @@
 import { VFC } from "react";
 import { Field, TextField } from "decky-frontend-lib";
 
-// A titled group with a subtle header — used to lay out the editor modal
-// into clear sections (Actions / Modes / Auto-dock) without QAM PanelSections.
-export const Section: VFC<{ title?: string; hint?: string; children: any }> = ({ title, hint, children }) => (
-  <div style={{ marginBottom: "16px" }}>
-    {title ? (
-      <div style={{ fontSize: "1em", fontWeight: 700, margin: "10px 0 2px" }}>{title}</div>
-    ) : null}
-    {hint ? (
-      <div style={{ fontSize: "0.75em", opacity: 0.6, marginBottom: "6px" }}>{hint}</div>
-    ) : null}
-    {children}
-  </div>
-);
-
 // A bordered card wrapping one editable Action or Mode.
 export const Card: VFC<{ title: string; children: any }> = ({ title, children }) => (
   <div

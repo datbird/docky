@@ -1,6 +1,6 @@
 import { VFC, useState, useEffect } from "react";
 import { ModalRoot, DialogButton } from "decky-frontend-lib";
-import { call } from "../util";
+import { call, errText } from "../util";
 import { TextRow } from "./inputs";
 
 // Pair a Moonlight client with Docky's Sunshine. If no Sunshine login is stored
@@ -43,7 +43,7 @@ export const PairModal: VFC<{
       })
       .catch((e) => {
         setBusy(false);
-        setMsg("Error: " + e);
+        setMsg("Error: " + errText(e));
       });
   }
 
@@ -58,7 +58,7 @@ export const PairModal: VFC<{
       })
       .catch((e) => {
         setBusy(false);
-        setMsg("Error: " + e);
+        setMsg("Error: " + errText(e));
       });
   }
 
@@ -73,7 +73,7 @@ export const PairModal: VFC<{
       })
       .catch((e) => {
         setBusy(false);
-        setMsg("Error: " + e);
+        setMsg("Error: " + errText(e));
       });
   }
 
@@ -91,7 +91,7 @@ export const PairModal: VFC<{
       })
       .catch((e) => {
         setBusy(false);
-        setMsg("Error: " + e);
+        setMsg("Error: " + errText(e));
       });
   }
 
@@ -109,7 +109,7 @@ export const PairModal: VFC<{
       })
       .catch((e) => {
         setBusy(false);
-        setMsg("Error: " + e);
+        setMsg("Error: " + errText(e));
       });
   }
 
@@ -188,7 +188,7 @@ export const PairModal: VFC<{
 
       {msg ? <div style={{ fontSize: "0.8em", opacity: 0.85, marginTop: "8px" }}>{msg}</div> : null}
       <div style={{ marginTop: "10px" }}>
-        <DialogButton disabled={busy} onClick={() => closeModal && closeModal()}>
+        <DialogButton onClick={() => closeModal && closeModal()}>
           Close
         </DialogButton>
       </div>

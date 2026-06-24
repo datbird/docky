@@ -44,6 +44,7 @@ async def _trigger_watch():
     # (does not). Module-level — Decky's class wrapping breaks self.method().
     mono0 = time.monotonic()
     boot0 = time.clock_gettime(time.CLOCK_BOOTTIME)
+    first = True
     while True:
         poll = 3
         try:
@@ -53,23 +54,31 @@ async def _trigger_watch():
             st = docky.load_state()
 
             # resume detection: boot-time advanced far more than awake time.
+            # Skip the first iteration (its delta isn't a real suspend).
             mono1 = time.monotonic()
             boot1 = time.clock_gettime(time.CLOCK_BOOTTIME)
             slept = (boot1 - boot0) - (mono1 - mono0)
             mono0, boot0 = mono1, boot1
-            if s.get("autoResume") and slept > 20:
+            if not first and s.get("autoResume") and slept > 20:
                 _fire(s.get("resumeMode"), "resume (slept %ds)" % int(slept))
+            first = False
 
+            # Collect only the baseline fields that changed, then merge them
+            # atomically — never write back the whole (stale) state object, which
+            # would clobber an activeMode a fired trigger just set.
+            changes = {}
             for flag, field, read, on_true, on_false, label in _TRANSITION_TRIGGERS:
                 if not s.get(flag):
                     continue
                 cur = read(cfg)
                 last = st.get(field)
-                if last is not None and cur != last:
-                    _fire(s.get(on_true) if cur else s.get(on_false),
-                          "%s %s" % (label, "on" if cur else "off"))
-                st[field] = cur
-            docky.save_state(st)
+                if cur != last:
+                    if last is not None:
+                        _fire(s.get(on_true) if cur else s.get(on_false),
+                              "%s %s" % (label, "on" if cur else "off"))
+                    changes[field] = cur
+            if changes:
+                docky.update_state(**changes)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
@@ -135,14 +144,6 @@ class Plugin:
         except Exception as e:  # noqa: BLE001
             decky.logger.exception("activate_mode failed")
             return {"result": {"ok": False, "message": str(e)}}
-
-    async def set_auto_dock(self, enabled):
-        try:
-            settings = docky.set_auto_dock(enabled)
-            return {"settings": settings, "state": docky.get_state()}
-        except Exception as e:  # noqa: BLE001
-            decky.logger.exception("set_auto_dock failed")
-            return {"error": str(e)}
 
     async def set_trigger(self, key, enabled):
         try:
@@ -280,8 +281,9 @@ class Plugin:
         decky.logger.info("Docky loaded; config=%s", docky.CONFIG_PATH)
 
     async def _unload(self):
-        if self._watch_task:
-            self._watch_task.cancel()
+        for task in (self._watch_task, self._autostart_task, self._startup_task):
+            if task:
+                task.cancel()
         decky.logger.info("Docky unloaded")
 
     async def _uninstall(self):
