@@ -57,6 +57,9 @@ export interface StateFavorite {
   // Live on/off state for action favorites whose action has a stateful task
   // (e.g. force-composition). null/undefined when the item has no readable state.
   status?: boolean | null;
+  // Verb the action performs ("On"/"Off"/"Toggle"), used as the button prefix
+  // instead of "Run:". null/undefined for plain actions.
+  verb?: string | null;
 }
 export interface DockyState {
   docked?: boolean;

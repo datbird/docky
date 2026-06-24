@@ -1052,7 +1052,7 @@
                         window.SP_REACT.createElement("span", { style: { display: "flex", alignItems: "center", gap: "8px" } },
                             hasStatus ? window.SP_REACT.createElement(StatusDot, { on: !!f.status }) : null,
                             window.SP_REACT.createElement("span", null, (hasStatus ? "" : isActive ? "✓ " : "★ ") +
-                                (f.kind === "mode" ? "" : "Run: ") +
+                                (f.kind === "mode" ? "" : (f.verb ? f.verb : "Run") + ": ") +
                                 f.name +
                                 (f.missing ? " (missing)" : ""))))));
             })) : (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,

@@ -404,14 +404,24 @@ def _task_bool_status(task):
     return None
 
 
-def _action_status(action):
-    """A boolean status for an action, taken from its first stateful task
-    (or None if it has none)."""
+def _task_verb(task):
+    """Verb describing what a stateful task does, for its button label
+    ("On"/"Off"/"Toggle"), or None for non-stateful tasks."""
+    t = task.get("type")
+    if t == "sunshine_composition":
+        mode = task.get("mode") or ("on" if task.get("enabled") else "off")
+        return {"on": "On", "off": "Off", "toggle": "Toggle"}.get(mode, "Toggle")
+    return None
+
+
+def _action_control(action):
+    """For an action's first stateful task: its live on/off status and the verb
+    it performs. {status: None, verb: None} when nothing stateful."""
     for task in action.get("tasks", []):
         s = _task_bool_status(task)
         if s is not None:
-            return bool(s)
-    return None
+            return {"status": bool(s), "verb": _task_verb(task)}
+    return {"status": None, "verb": None}
 
 
 def _resolved_favorites(cfg):
@@ -430,9 +440,10 @@ def _resolved_favorites(cfg):
             continue
         item = store.get(fid)
         name = item.get("name", fid) if item else fid
-        status = _action_status(item) if (item and kind == "action") else None
-        out.append({"kind": kind, "id": fid, "name": name,
-                    "missing": item is None, "status": status})
+        ctrl = (_action_control(item) if (item and kind == "action")
+                else {"status": None, "verb": None})
+        out.append({"kind": kind, "id": fid, "name": name, "missing": item is None,
+                    "status": ctrl["status"], "verb": ctrl["verb"]})
     return out
 
 

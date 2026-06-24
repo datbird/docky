@@ -348,7 +348,7 @@ const Content: VFC = () => {
                     {hasStatus ? <StatusDot on={!!f.status} /> : null}
                     <span>
                       {(hasStatus ? "" : isActive ? "✓ " : "★ ") +
-                        (f.kind === "mode" ? "" : "Run: ") +
+                        (f.kind === "mode" ? "" : (f.verb ? f.verb : "Run") + ": ") +
                         f.name +
                         (f.missing ? " (missing)" : "")}
                     </span>
