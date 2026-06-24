@@ -195,6 +195,36 @@ def set_composition(enabled):
     return False, (res.stderr or "xprop failed").strip()[:200]
 
 
+def get_composition():
+    """Return True if GAMESCOPE_COMPOSITE_FORCE is currently set nonzero on :0."""
+    cmd = "DISPLAY=:0 xprop -root GAMESCOPE_COMPOSITE_FORCE"
+    try:
+        res = subprocess.run(["su", SESSION_USER, "-c", cmd],
+                             capture_output=True, text=True)
+    except OSError:
+        return False
+    out = (res.stdout or "").strip()
+    if "=" not in out:  # "...: not found." when the atom is unset
+        return False
+    try:
+        return int(out.rsplit("=", 1)[1].strip()) != 0
+    except ValueError:
+        return False
+
+
+def apply_composition(mode):
+    """Apply a composition action: 'on' | 'off' | 'toggle'. Toggle flips the
+    current atom value. Returns (ok, message)."""
+    mode = (mode or "on").lower()
+    if mode == "toggle":
+        enabled = not get_composition()
+    elif mode == "off":
+        enabled = False
+    else:
+        enabled = True
+    return set_composition(enabled)
+
+
 def get_encoder():
     """Return the encoder currently set in Sunshine's config ('' = auto)."""
     try:

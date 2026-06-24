@@ -283,7 +283,12 @@ def run_task(task, allow_running_emu=True):
             r.update(ok=ok, message=msg)
 
         elif t == "sunshine_composition":
-            ok, msg = sunshine.set_composition(bool(task.get("enabled")))
+            # New tasks carry mode = on/off/toggle; old ones had a boolean
+            # "enabled" — fall back to that for backward compatibility.
+            mode = task.get("mode")
+            if not mode:
+                mode = "on" if task.get("enabled") else "off"
+            ok, msg = sunshine.apply_composition(mode)
             r.update(ok=ok, message=msg)
 
         elif t == "sunshine_encoder":

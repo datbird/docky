@@ -111,9 +111,18 @@
             label: "Sunshine: force composition (fix docked stretch)",
             builtin: true,
             fields: [
-                { key: "enabled", kind: "bool", label: "Force composition on" },
+                {
+                    key: "mode",
+                    kind: "select",
+                    label: "Action",
+                    options: [
+                        { data: "on", label: "On" },
+                        { data: "off", label: "Off" },
+                        { data: "toggle", label: "Toggle" },
+                    ],
+                },
             ],
-            summary: (t) => "Sunshine composition: " + (t.enabled ? "on" : "off"),
+            summary: (t) => "Sunshine composition: " + (t.mode || (t.enabled ? "on" : "off")),
         },
         {
             type: "sunshine_encoder",
@@ -292,6 +301,10 @@
                 }
                 else if (val !== undefined && val !== "") {
                     task[f.key] = val;
+                }
+                else if (f.kind === "select" && f.options && f.options.length) {
+                    // Untouched dropdown: persist the shown default (its first option).
+                    task[f.key] = f.options[0].data;
                 }
             });
             if (type === "pcsx2_profile" && !task.profile && profiles.length)

@@ -84,9 +84,19 @@ export const TASK_DEFS: TaskTypeDef[] = [
     label: "Sunshine: force composition (fix docked stretch)",
     builtin: true,
     fields: [
-      { key: "enabled", kind: "bool", label: "Force composition on" },
+      {
+        key: "mode",
+        kind: "select",
+        label: "Action",
+        options: [
+          { data: "on", label: "On" },
+          { data: "off", label: "Off" },
+          { data: "toggle", label: "Toggle" },
+        ],
+      },
     ],
-    summary: (t) => "Sunshine composition: " + (t.enabled ? "on" : "off"),
+    summary: (t) =>
+      "Sunshine composition: " + (t.mode || (t.enabled ? "on" : "off")),
   },
   {
     type: "sunshine_encoder",
