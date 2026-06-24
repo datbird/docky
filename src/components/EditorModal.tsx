@@ -9,7 +9,7 @@ import {
   showModal,
 } from "decky-frontend-lib";
 import { Config, Favorite, Task, call, clone, errText, slugify, toast, uniqueId } from "../util";
-import { BUILTIN_DEFS, GENERIC_DEFS, TaskTypeDef, taskDef, summarizeTask } from "../taskdefs";
+import { BUILTIN_DEFS, GENERIC_DEFS, TaskField, TaskTypeDef, taskDef, summarizeTask } from "../taskdefs";
 import { Card, TextRow } from "./inputs";
 
 type TabId = "actions" | "modes" | "favorites" | "autodock";
@@ -279,6 +279,52 @@ const ListRow: VFC<{ label: string; sub?: string; onClick: () => void }> = ({ la
   </DialogButton>
 );
 
+// Render a single task field bound to `value`, calling onChange with the new
+// value. Used to edit a task already in an action (bool/select/profile/text).
+function renderTaskField(
+  f: TaskField,
+  value: any,
+  onChange: (v: any) => void,
+  profiles: string[]
+) {
+  if (f.kind === "bool") {
+    return (
+      <ToggleField key={f.key} label={f.label} checked={!!value} onChange={(v) => onChange(v)} />
+    );
+  }
+  if (f.kind === "profile") {
+    if (!profiles.length) {
+      return (
+        <Field key={f.key} label={f.label}>
+          <span style={{ opacity: 0.7 }}>No PCSX2 profiles found</span>
+        </Field>
+      );
+    }
+    return (
+      <DropdownItem
+        key={f.key}
+        label={f.label}
+        rgOptions={profiles.map((p) => ({ data: p, label: p }))}
+        selectedOption={value || profiles[0]}
+        onChange={(o) => onChange(o.data)}
+      />
+    );
+  }
+  if (f.kind === "select") {
+    const opts = f.options || [];
+    return (
+      <DropdownItem
+        key={f.key}
+        label={f.label}
+        rgOptions={opts}
+        selectedOption={value ?? (opts[0] ? opts[0].data : "")}
+        onChange={(o) => onChange(o.data)}
+      />
+    );
+  }
+  return <TextRow key={f.key} label={f.label} value={value ?? ""} onChange={(v) => onChange(v)} />;
+}
+
 // Pick an action/mode (encoded "kind:id") not yet favorited, and add it.
 const AddFavorite: VFC<{
   options: { data: string; label: string }[];
@@ -438,17 +484,37 @@ export const EditorModal: VFC<{
             {(action.tasks || []).length === 0 ? (
               <div style={{ opacity: 0.6, margin: "4px 0" }}>No tasks yet</div>
             ) : (
-              (action.tasks || []).map((task, ti) => (
-                <Field key={ti} label={summarizeTask(task)} bottomSeparator="none">
-                  <DialogButton
-                    style={{ width: "8em" }}
-                    disabled={busy}
-                    onClick={() => mutate((n) => { n.actions[aid].tasks.splice(ti, 1); })}
-                  >
-                    Remove
-                  </DialogButton>
-                </Field>
-              ))
+              (action.tasks || []).map((task, ti) => {
+                const d = taskDef(task.type);
+                const fields = d ? d.fields : [];
+                const setField = (f: TaskField, value: any) =>
+                  mutate((n) => {
+                    const t = n.actions[aid].tasks[ti];
+                    if (f.kind === "bool") {
+                      if (value) t[f.key] = true;
+                      else delete t[f.key];
+                    } else if (value === "" || value === undefined) {
+                      delete t[f.key];
+                    } else {
+                      t[f.key] = value;
+                    }
+                  });
+                return (
+                  <Card key={ti} title={d ? d.label : task.type}>
+                    <div style={{ fontSize: "0.78em", opacity: 0.6, marginBottom: "4px" }}>
+                      {summarizeTask(task)}
+                    </div>
+                    {fields.map((f) => renderTaskField(f, task[f.key], (v) => setField(f, v), profiles))}
+                    <DialogButton
+                      style={{ marginTop: "6px" }}
+                      disabled={busy}
+                      onClick={() => mutate((n) => { n.actions[aid].tasks.splice(ti, 1); })}
+                    >
+                      Remove task
+                    </DialogButton>
+                  </Card>
+                );
+              })
             )}
             <AddTask
               profiles={profiles}
