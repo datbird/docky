@@ -20,7 +20,10 @@ import tempfile
 import time
 import glob
 
+import logging
 import threading
+
+_log = logging.getLogger("docky")
 
 import padswap  # proven PCSX2 input-profile logic
 import sunshine  # Docky's own Sunshine flatpak control
@@ -95,7 +98,16 @@ def _read_json(path, fallback):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return fallback
+    except (OSError, ValueError) as e:
+        # A present-but-unreadable/corrupt file shouldn't be silently discarded.
+        _log.warning("could not read %s (%s); using fallback", path, e)
+        if os.path.isfile(path):
+            try:
+                os.replace(path, path + ".corrupt")  # keep it for recovery
+            except OSError:
+                pass
         return fallback
 
 
