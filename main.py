@@ -12,7 +12,10 @@ import decky
 try:
     os.environ["HOME"] = os.environ.get("DECKY_USER_HOME") or pwd.getpwnam("deck").pw_dir
 except KeyError:
-    pass
+    # No DECKY_USER_HOME and no 'deck' user — HOME stays /root and config would
+    # land under /root. Loud about it rather than silently wrong-pathing.
+    decky.logger.warning("Docky: could not resolve deck home; HOME stays %s",
+                         os.environ.get("HOME"))
 
 import docky
 
@@ -237,24 +240,28 @@ class Plugin:
         try:
             return docky.sunshine_clients()
         except Exception as e:  # noqa: BLE001
+            decky.logger.exception("sunshine_clients failed")
             return {"ok": False, "clients": [], "message": str(e)}
 
     async def sunshine_unpair(self, uuid):
         try:
             return docky.sunshine_unpair(uuid)
         except Exception as e:  # noqa: BLE001
+            decky.logger.exception("sunshine_unpair failed")
             return {"ok": False, "message": str(e)}
 
     async def sunshine_unpair_all(self):
         try:
             return docky.sunshine_unpair_all()
         except Exception as e:  # noqa: BLE001
+            decky.logger.exception("sunshine_unpair_all failed")
             return {"ok": False, "message": str(e)}
 
     async def sunshine_set_client_enabled(self, uuid, enabled):
         try:
             return docky.sunshine_set_client_enabled(uuid, enabled)
         except Exception as e:  # noqa: BLE001
+            decky.logger.exception("sunshine_set_client_enabled failed")
             return {"ok": False, "message": str(e)}
 
     async def get_config(self):

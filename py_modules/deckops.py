@@ -33,6 +33,8 @@ def _su_deck(cmd, timeout=15):
                              timeout=timeout)
     except subprocess.TimeoutExpired:
         return 124, "", "timed out"
+    except OSError as e:
+        return 127, "", "su unavailable: %s" % e
     return res.returncode, (res.stdout or ""), (res.stderr or "")
 
 

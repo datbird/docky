@@ -17,10 +17,10 @@ install -m 0644 "$SRC/main.py"                "$DEST/main.py"
 install -m 0644 "$SRC/plugin.json"            "$DEST/plugin.json"
 install -m 0644 "$SRC/package.json"           "$DEST/package.json"
 install -m 0644 "$SRC/dist/index.js"          "$DEST/dist/index.js"
-install -m 0644 "$SRC/py_modules/docky.py"    "$DEST/py_modules/docky.py"
-install -m 0644 "$SRC/py_modules/padswap.py"  "$DEST/py_modules/padswap.py"
-install -m 0644 "$SRC/py_modules/sunshine.py" "$DEST/py_modules/sunshine.py"
-install -m 0644 "$SRC/py_modules/deckops.py"  "$DEST/py_modules/deckops.py"
+# Copy every backend module so adding a new py_module can't silently break installs.
+for mod in "$SRC"/py_modules/*.py; do
+  install -m 0644 "$mod" "$DEST/py_modules/$(basename "$mod")"
+done
 [[ -f "$SRC/README.md" ]] && install -m 0644 "$SRC/README.md" "$DEST/README.md" || true
 
 chown -R root:root "$DEST"

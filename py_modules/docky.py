@@ -297,10 +297,12 @@ def run_task(task, allow_running_emu=True):
                 argv = [_p(task["argv"][0])] + [str(a) for a in task["argv"][1:]]
                 ok, msg = _run_proc(argv, shell=False, cwd=task.get("cwd"),
                                     timeout=task.get("timeout", DEFAULT_TIMEOUT))
-            else:
-                ok, msg = _run_proc(task.get("command", ""), shell=True,
+            elif task.get("command"):
+                ok, msg = _run_proc(task["command"], shell=True,
                                     cwd=task.get("cwd"),
                                     timeout=task.get("timeout", DEFAULT_TIMEOUT))
+            else:
+                ok, msg = False, "run task needs 'argv' or 'command'"
             r.update(ok=ok, message=msg)
 
         elif t == "sunshine_start":

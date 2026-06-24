@@ -41,16 +41,16 @@ SESSION_USER = "deck"
 SESSION_UID = 1000
 
 
-def _runtime_dir():
-    # The setuid bwrap copy must live on a filesystem that honors setuid. On
-    # SteamOS /tmp and /run are mounted nosuid, so we use Decky's per-plugin data
-    # dir under the user's home (which allows setuid).
-    home = os.environ.get("DECKY_USER_HOME") or os.path.expanduser("~")
-    return os.path.join(home, "homebrew", "data", "docky")
+# The setuid-root bwrap copy must live on a setuid-honoring filesystem with a
+# fully ROOT-OWNED path chain. /tmp and /run are nosuid on SteamOS; the Decky
+# per-plugin data dir under ~deck is unsafe because the user owns an ancestor and
+# could rename/replace it to plant a binary Docky would then make setuid-root.
+# /var/lib is root-owned end-to-end and honors setuid.
+_BWRAP_DIR = "/var/lib/docky"
 
 
 def _bwrap_copy():
-    return os.path.join(_runtime_dir(), "docky-bwrap")
+    return os.path.join(_BWRAP_DIR, "docky-bwrap")
 
 
 def _audio_socket():
@@ -63,7 +63,7 @@ def _audio_socket():
 
 
 def _launch_env():
-    env = os.environ.copy()
+    env = _clean_env()  # drop Decky's PyInstaller /tmp/_MEI… before we add /usr/lib
     # Sunshine runs as root; keep its config under /root (matches CONF_PATH).
     env["HOME"] = "/root"
     env["DISPLAY"] = ":0"
@@ -92,28 +92,32 @@ def _flatpak(args, capture=True, timeout=120):
 
 # is_installed/installed_scope are hit on every get_state poll; each is a flatpak
 # subprocess. Cache the result briefly (the install state rarely changes) and
-# invalidate explicitly after an install/update.
+# invalidate explicitly after an install/update. Stored as a single (ts, val)
+# tuple so a poll on one thread always reads a consistent pair.
 _SCOPE_TTL = 15.0
-_scope_cache = {"ts": -1e9, "val": None}
+_scope_cache = (-1e9, None)
 
 
 def _invalidate_scope_cache():
-    _scope_cache["ts"] = -1e9
+    global _scope_cache
+    _scope_cache = (-1e9, None)
 
 
 def installed_scope(force=False):
     """'--system', '--user', or None — where the Sunshine flatpak is installed.
     Checks system first (Docky's + decky-sunshine's default), then a per-user
     install someone may have done manually. Result is cached for a few seconds."""
+    global _scope_cache
+    ts, cached = _scope_cache
     now = time.monotonic()
-    if not force and (now - _scope_cache["ts"]) < _SCOPE_TTL:
-        return _scope_cache["val"]
+    if not force and (now - ts) < _SCOPE_TTL:
+        return cached
     val = None
     for scope in ("--system", "--user"):
         if _flatpak(["info", scope, APP_ID]).returncode == 0:
             val = scope
             break
-    _scope_cache.update(ts=now, val=val)
+    _scope_cache = (now, val)
     return val
 
 
@@ -144,11 +148,8 @@ def ensure_installed():
     if is_installed():
         return True, "Sunshine already installed"
     _ensure_flathub()
-    try:
-        res = _flatpak(["install", "--system", "--noninteractive", "--or-update",
-                        "flathub", APP_ID], timeout=600)
-    except OSError as e:
-        return False, "flatpak not available: %s" % e
+    res = _flatpak(["install", "--system", "--noninteractive", "--or-update",
+                    "flathub", APP_ID], timeout=600)
     _invalidate_scope_cache()
     if res.returncode == 0:
         return True, "Sunshine installed"
@@ -172,10 +173,7 @@ def update():
     if not is_installed():
         return False, "Sunshine is not installed"
     _ensure_flathub()
-    try:
-        res = _flatpak(["update", "--system", "--noninteractive", APP_ID], timeout=600)
-    except OSError as e:
-        return False, "flatpak not available: %s" % e
+    res = _flatpak(["update", "--system", "--noninteractive", APP_ID], timeout=600)
     _invalidate_scope_cache()
     if res.returncode == 0:
         return True, "Sunshine updated"
@@ -227,6 +225,13 @@ def _prepare_bwrap():
     dst = _bwrap_copy()
     d = os.path.dirname(dst)
     try:
+        # Remove the legacy setuid copy older Docky versions left under the
+        # user-owned home (now considered unsafe).
+        legacy = os.path.join(
+            os.environ.get("DECKY_USER_HOME") or os.path.expanduser("~"),
+            "homebrew", "data", "docky", "docky-bwrap")
+        if os.path.lexists(legacy):
+            os.remove(legacy)
         os.makedirs(d, exist_ok=True)
         os.chown(d, 0, 0)          # root-owned so the user can't write into it
         os.chmod(d, 0o755)
@@ -280,10 +285,7 @@ def stop():
     """Terminate the Sunshine flatpak. Returns (ok, message)."""
     if not is_running():
         return True, "Sunshine not running"
-    try:
-        _flatpak(["kill", APP_ID])
-    except OSError:
-        pass
+    _flatpak(["kill", APP_ID])  # soft-fails internally; pkill fallback below
     # flatpak kill can miss it in the minimal env; fall back to a direct kill.
     if not _wait(lambda: not is_running(), tries=12):
         try:
