@@ -494,23 +494,6 @@
                 setMsg("Error: " + errText(err));
             });
         }
-        function reload() {
-            setBusy(true);
-            call("get_config", {})
-                .then((r) => {
-                setBusy(false);
-                if (r && r.config)
-                    setCfg(r.config);
-                setDirty(false);
-                setSelAction(null);
-                setSelMode(null);
-                setMsg("Reloaded from file");
-            })
-                .catch((err) => {
-                setBusy(false);
-                setMsg("Error: " + errText(err));
-            });
-        }
         const cfgActions = cfg.actions || {};
         const cfgModes = cfg.modes || {};
         const actionIds = Object.keys(cfgActions);
@@ -726,8 +709,7 @@
                 window.SP_REACT.createElement("span", { style: { fontSize: "0.8em", opacity: 0.7 } }, dirty ? "Unsaved changes" : "Saved")),
             window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px", marginBottom: "10px" } },
                 window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !dirty, onClick: saveCfg }, "Save"),
-                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: reload }, dirty ? "Discard" : "Reload"),
-                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => closeModal?.() }, "Close")),
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => closeModal?.() }, dirty ? "Cancel" : "Close")),
             msg ? window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.8, marginBottom: "8px" } }, msg) : null,
             window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "4px", marginBottom: "10px" } },
                 window.SP_REACT.createElement(TabButton, { active: tab === "actions", label: "Actions", onClick: () => setTab("actions") }),

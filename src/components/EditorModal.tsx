@@ -463,23 +463,6 @@ export const EditorModal: VFC<{
       });
   }
 
-  function reload() {
-    setBusy(true);
-    call<any>("get_config", {})
-      .then((r) => {
-        setBusy(false);
-        if (r && r.config) setCfg(r.config);
-        setDirty(false);
-        setSelAction(null);
-        setSelMode(null);
-        setMsg("Reloaded from file");
-      })
-      .catch((err) => {
-        setBusy(false);
-        setMsg("Error: " + errText(err));
-      });
-  }
-
   const cfgActions = cfg.actions || {};
   const cfgModes = cfg.modes || {};
   const actionIds = Object.keys(cfgActions);
@@ -939,11 +922,10 @@ export const EditorModal: VFC<{
         <DialogButton disabled={busy || !dirty} onClick={saveCfg}>
           Save
         </DialogButton>
-        <DialogButton disabled={busy} onClick={reload}>
-          {dirty ? "Discard" : "Reload"}
-        </DialogButton>
+        {/* Closing discards the unsaved draft (edits only persist on Save), so
+            this is a true cancel when there are pending changes. */}
         <DialogButton disabled={busy} onClick={() => closeModal?.()}>
-          Close
+          {dirty ? "Cancel" : "Close"}
         </DialogButton>
       </Focusable>
       {msg ? <div style={{ fontSize: "0.8em", opacity: 0.8, marginBottom: "8px" }}>{msg}</div> : null}
