@@ -87,6 +87,7 @@ export const PairModal: VFC<{
         if (r && r.ok) {
           if (r.state) onState(r.state);
           setMode("pair");
+          refreshClients(); // a login may already have paired devices to show
         }
       })
       .catch((e) => {
@@ -124,7 +125,7 @@ export const PairModal: VFC<{
             username/password — existing paired devices are kept.
           </div>
           <TextRow label="Username" value={user} onChange={setUser} />
-          <TextRow label="Password" value={pass} onChange={setPass} />
+          <TextRow label="Password" value={pass} onChange={setPass} password />
           <DialogButton disabled={busy || !user.trim() || !pass} onClick={saveLogin}>
             Save login
           </DialogButton>

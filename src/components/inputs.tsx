@@ -17,8 +17,11 @@ export const Card: VFC<{ title: string; children: any }> = ({ title, children })
   </div>
 );
 
-export const TextRow: VFC<{ label: string; value?: string; onChange: (v: string) => void }> = (props) => (
-  <Field label={props.label} childrenLayout="below" bottomSeparator="none">
-    <TextField value={props.value || ""} onChange={(e) => props.onChange(e.target.value)} />
-  </Field>
-);
+export const TextRow: VFC<{ label: string; value?: string; password?: boolean; onChange: (v: string) => void }> = (props) => {
+  const extra: any = props.password ? { bIsPassword: true } : {};
+  return (
+    <Field label={props.label} childrenLayout="below" bottomSeparator="none">
+      <TextField {...extra} value={props.value || ""} onChange={(e) => props.onChange(e.target.value)} />
+    </Field>
+  );
+};

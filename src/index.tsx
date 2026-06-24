@@ -1,4 +1,4 @@
-import { VFC, useState, useEffect } from "react";
+import { VFC, useState, useEffect, useRef } from "react";
 import {
   definePlugin,
   ServerAPI,
@@ -150,9 +150,21 @@ const Content: VFC = () => {
       .catch((err) => setState({ error: errText(err) }));
   }
 
+  // Mirror `busy` into a ref so the polling interval can read the latest value
+  // without re-subscribing.
+  const busyRef = useRef(false);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
   useEffect(() => {
     refresh();
-    const iv = setInterval(refresh, 4000);
+    // Skip the periodic poll while a mutation is in flight — otherwise a refresh
+    // can land after an action and clobber it with stale state (toggles snapping
+    // back, momentary flicker).
+    const iv = setInterval(() => {
+      if (!busyRef.current) refresh();
+    }, 4000);
     return () => clearInterval(iv);
   }, []);
 
@@ -178,6 +190,9 @@ const Content: VFC = () => {
 
   function toggleTrigger(key: string, label: string, v: boolean) {
     setBusy(true);
+    // Optimistically reflect the new toggle so the switch doesn't visibly snap
+    // back while the (root) backend call is in flight; reconciled on response.
+    setState((s) => (s ? { ...s, settings: { ...(s.settings || {}), [key]: v } } : s));
     call<{ state?: DockyState }>("set_trigger", { key, enabled: v })
       .then((r) => {
         setBusy(false);

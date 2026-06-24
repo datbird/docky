@@ -43,6 +43,31 @@
         }
         return id;
     }
+    // Tasks have no stable id, so we tag each with a client-only `__key` for React
+    // list identity (index keys reuse the wrong DOM when a task is removed). Keys are
+    // assigned on load and stripped before save so they never reach config.json.
+    let _taskSeq = 0;
+    function nextTaskKey() {
+        return "tk" + ++_taskSeq;
+    }
+    function withTaskKeys(cfg) {
+        Object.keys(cfg.actions || {}).forEach((aid) => {
+            (cfg.actions[aid].tasks || []).forEach((t) => {
+                if (!t.__key)
+                    t.__key = nextTaskKey();
+            });
+        });
+        return cfg;
+    }
+    function stripTaskKeys(cfg) {
+        const c = clone(cfg);
+        Object.keys(c.actions || {}).forEach((aid) => {
+            (c.actions[aid].tasks || []).forEach((t) => {
+                delete t.__key;
+            });
+        });
+        return c;
+    }
     // Human-readable summary of a run_action / activate_mode result.
     function summarize(result) {
         if (!result)
@@ -57,9 +82,9 @@
         const fail = tasks.filter((t) => !t.ok);
         const skip = tasks.filter((t) => t.skipped);
         if (fail.length)
-            return "Failed: " + fail[0].message;
+            return "Failed: " + (fail[0].message || "task failed");
         if (skip.length)
-            return "Done (" + skip.length + " skipped): " + skip[0].message;
+            return "Done (" + skip.length + " skipped): " + (skip[0].message || "");
         return "Done — " + tasks.length + " task" + (tasks.length === 1 ? "" : "s") + " OK";
     }
 
@@ -80,7 +105,6 @@
                     label: "Controller profiles folder",
                     description: "Folder holding the PCSX2 input-profile .ini files. Change this if PCSX2 isn't the RetroDECK Flatpak (EmuDeck, standalone, etc.). The main PCSX2.ini is found alongside it.",
                     default: "~/.var/app/net.retrodeck.retrodeck/config/PCSX2/inputprofiles",
-                    placeholder: "~/.var/app/net.retrodeck.retrodeck/config/PCSX2/inputprofiles",
                 },
             ],
             summary: (t) => "PCSX2 profile: " + (t.profile || "?"),
@@ -298,8 +322,11 @@
         } },
         window.SP_REACT.createElement("div", { style: { fontWeight: 600, marginBottom: "4px" } }, title),
         children));
-    const TextRow = (props) => (window.SP_REACT.createElement(deckyFrontendLib.Field, { label: props.label, childrenLayout: "below", bottomSeparator: "none" },
-        window.SP_REACT.createElement(deckyFrontendLib.TextField, { value: props.value || "", onChange: (e) => props.onChange(e.target.value) })));
+    const TextRow = (props) => {
+        const extra = props.password ? { bIsPassword: true } : {};
+        return (window.SP_REACT.createElement(deckyFrontendLib.Field, { label: props.label, childrenLayout: "below", bottomSeparator: "none" },
+            window.SP_REACT.createElement(deckyFrontendLib.TextField, { ...extra, value: props.value || "", onChange: (e) => props.onChange(e.target.value) })));
+    };
 
     // Sentinel for the top-level dropdown entry that groups the curated Docky tasks.
     const DOCKY_BUILTIN = "__docky_builtin__";
@@ -342,7 +369,7 @@
         const topOptions = (hasBuiltins ? [{ data: DOCKY_BUILTIN, label: "Docky built-in task" }] : []).concat(GENERIC_DEFS.map((d) => ({ data: d.type, label: optLabel(d) })));
         const setField = (k, val) => setVals({ ...vals, [k]: val });
         const add = () => {
-            const task = { type };
+            const task = { type, __key: nextTaskKey() };
             def.fields.forEach((f) => {
                 const val = vals[f.key];
                 if (f.kind === "bool") {
@@ -470,7 +497,7 @@
         window.SP_REACT.createElement("span", { style: { opacity: 0.7 } }, label),
         window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, value || "—")));
     const EditorModal = ({ closeModal, initialConfig, profiles, installedPlugins, onSaved }) => {
-        const [cfg, setCfg] = react.useState(clone(initialConfig));
+        const [cfg, setCfg] = react.useState(() => withTaskKeys(clone(initialConfig)));
         const [dirty, setDirty] = react.useState(false);
         const [busy, setBusy] = react.useState(false);
         const [msg, setMsg] = react.useState("");
@@ -530,7 +557,7 @@
         function saveCfg() {
             setBusy(true);
             setMsg("Saving…");
-            call("save_config", { config: cfg })
+            call("save_config", { config: stripTaskKeys(cfg) })
                 .then((r) => {
                 setBusy(false);
                 if (r && r.ok) {
@@ -605,7 +632,7 @@
                                     t[f.key] = value;
                                 }
                             });
-                            return (window.SP_REACT.createElement(Card, { key: ti, title: d ? d.label : task.type },
+                            return (window.SP_REACT.createElement(Card, { key: task.__key || ti, title: d ? d.label : task.type },
                                 window.SP_REACT.createElement("div", { style: { fontSize: "0.78em", opacity: 0.6, marginBottom: "4px" } }, summarizeTask(task)),
                                 fields.map((f) => renderTaskField(f, task[f.key], (v) => setField(f, v), profiles)),
                                 window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { style: { marginTop: "6px" }, disabled: busy, onClick: () => mutate((n) => { n.actions[aid].tasks.splice(ti, 1); }) }, "Remove task")));
@@ -809,13 +836,13 @@
                 window.SP_REACT.createElement(TabButton, { active: tab === "modes", label: "Modes", onClick: () => setTab("modes") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "favorites", label: "Favorites", onClick: () => setTab("favorites") }),
                 window.SP_REACT.createElement(TabButton, { active: tab === "sunshine", label: "Sunshine", onClick: () => setTab("sunshine") }),
-                window.SP_REACT.createElement(TabButton, { active: tab === "autodock", label: "Triggers", onClick: () => setTab("autodock") })),
+                window.SP_REACT.createElement(TabButton, { active: tab === "triggers", label: "Triggers", onClick: () => setTab("triggers") })),
             window.SP_REACT.createElement("div", { style: { maxHeight: "62vh", overflowY: "scroll", paddingRight: "6px" } },
                 tab === "actions" ? renderActions() : null,
                 tab === "modes" ? renderModes() : null,
                 tab === "favorites" ? renderFavorites() : null,
                 tab === "sunshine" ? renderSunshine() : null,
-                tab === "autodock" ? renderAutoDock() : null)));
+                tab === "triggers" ? renderAutoDock() : null)));
     };
 
     // Pair a Moonlight client with Docky's Sunshine. If no Sunshine login is stored
@@ -895,6 +922,7 @@
                     if (r.state)
                         onState(r.state);
                     setMode("pair");
+                    refreshClients(); // a login may already have paired devices to show
                 }
             })
                 .catch((e) => {
@@ -924,7 +952,7 @@
             mode === "login" ? (window.SP_REACT.createElement("div", null,
                 window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.7, marginBottom: "4px" } }, "Set a Sunshine login (used to authorize pairing). This resets Sunshine's username/password \u2014 existing paired devices are kept."),
                 window.SP_REACT.createElement(TextRow, { label: "Username", value: user, onChange: setUser }),
-                window.SP_REACT.createElement(TextRow, { label: "Password", value: pass, onChange: setPass }),
+                window.SP_REACT.createElement(TextRow, { label: "Password", value: pass, onChange: setPass, password: true }),
                 window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !user.trim() || !pass, onClick: saveLogin }, "Save login"))) : (window.SP_REACT.createElement("div", null,
                 window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.7, marginBottom: "4px" } }, "In Moonlight, select this Deck \u2014 it shows a PIN. Enter that PIN here."),
                 window.SP_REACT.createElement(TextRow, { label: "PIN", value: pin, onChange: setPin }),
@@ -1048,9 +1076,21 @@
                 .then(setState)
                 .catch((err) => setState({ error: errText(err) }));
         }
+        // Mirror `busy` into a ref so the polling interval can read the latest value
+        // without re-subscribing.
+        const busyRef = react.useRef(false);
+        react.useEffect(() => {
+            busyRef.current = busy;
+        }, [busy]);
         react.useEffect(() => {
             refresh();
-            const iv = setInterval(refresh, 4000);
+            // Skip the periodic poll while a mutation is in flight — otherwise a refresh
+            // can land after an action and clobber it with stale state (toggles snapping
+            // back, momentary flicker).
+            const iv = setInterval(() => {
+                if (!busyRef.current)
+                    refresh();
+            }, 4000);
             return () => clearInterval(iv);
         }, []);
         function doCall(method, args, label) {
@@ -1076,6 +1116,9 @@
         }
         function toggleTrigger(key, label, v) {
             setBusy(true);
+            // Optimistically reflect the new toggle so the switch doesn't visibly snap
+            // back while the (root) backend call is in flight; reconciled on response.
+            setState((s) => (s ? { ...s, settings: { ...(s.settings || {}), [key]: v } } : s));
             call("set_trigger", { key, enabled: v })
                 .then((r) => {
                 setBusy(false);

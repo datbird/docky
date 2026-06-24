@@ -8,11 +8,11 @@ import {
   Focusable,
   showModal,
 } from "decky-frontend-lib";
-import { Config, Favorite, Task, call, clone, errText, slugify, toast, uniqueId } from "../util";
+import { Config, Favorite, Task, call, clone, errText, nextTaskKey, slugify, stripTaskKeys, toast, uniqueId, withTaskKeys } from "../util";
 import { BUILTIN_DEFS, GENERIC_DEFS, TaskField, TaskTypeDef, taskDef, summarizeTask } from "../taskdefs";
 import { Card, TextRow } from "./inputs";
 
-type TabId = "actions" | "modes" | "favorites" | "sunshine" | "autodock";
+type TabId = "actions" | "modes" | "favorites" | "sunshine" | "triggers";
 
 interface SunshineInfo {
   installed: boolean;
@@ -105,7 +105,7 @@ const AddTask: VFC<{
   const setField = (k: string, val: any) => setVals({ ...vals, [k]: val });
 
   const add = () => {
-    const task: Task = { type };
+    const task: Task = { type, __key: nextTaskKey() };
     def.fields.forEach((f) => {
       const val = vals[f.key];
       if (f.kind === "bool") {
@@ -394,7 +394,7 @@ export const EditorModal: VFC<{
   installedPlugins: string[];
   onSaved: (state: any) => void;
 }> = ({ closeModal, initialConfig, profiles, installedPlugins, onSaved }) => {
-  const [cfg, setCfg] = useState<Config>(clone(initialConfig));
+  const [cfg, setCfg] = useState<Config>(() => withTaskKeys(clone(initialConfig)));
   const [dirty, setDirty] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
   const [msg, setMsg] = useState<string>("");
@@ -457,7 +457,7 @@ export const EditorModal: VFC<{
   function saveCfg() {
     setBusy(true);
     setMsg("Saving…");
-    call<any>("save_config", { config: cfg })
+    call<any>("save_config", { config: stripTaskKeys(cfg) })
       .then((r) => {
         setBusy(false);
         if (r && r.ok) {
@@ -544,7 +544,7 @@ export const EditorModal: VFC<{
                     }
                   });
                 return (
-                  <Card key={ti} title={d ? d.label : task.type}>
+                  <Card key={task.__key || ti} title={d ? d.label : task.type}>
                     <div style={{ fontSize: "0.78em", opacity: 0.6, marginBottom: "4px" }}>
                       {summarizeTask(task)}
                     </div>
@@ -1040,7 +1040,7 @@ export const EditorModal: VFC<{
         <TabButton active={tab === "modes"} label="Modes" onClick={() => setTab("modes")} />
         <TabButton active={tab === "favorites"} label="Favorites" onClick={() => setTab("favorites")} />
         <TabButton active={tab === "sunshine"} label="Sunshine" onClick={() => setTab("sunshine")} />
-        <TabButton active={tab === "autodock"} label="Triggers" onClick={() => setTab("autodock")} />
+        <TabButton active={tab === "triggers"} label="Triggers" onClick={() => setTab("triggers")} />
       </Focusable>
 
       {/* tab content */}
@@ -1049,7 +1049,7 @@ export const EditorModal: VFC<{
         {tab === "modes" ? renderModes() : null}
         {tab === "favorites" ? renderFavorites() : null}
         {tab === "sunshine" ? renderSunshine() : null}
-        {tab === "autodock" ? renderAutoDock() : null}
+        {tab === "triggers" ? renderAutoDock() : null}
       </div>
     </ModalRoot>
   );

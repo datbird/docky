@@ -16,7 +16,6 @@ export interface TaskSettingField {
   label: string;
   description?: string;
   default?: string;
-  placeholder?: string;
 }
 
 export interface TaskTypeDef {
@@ -53,7 +52,6 @@ export const TASK_DEFS: TaskTypeDef[] = [
         description:
           "Folder holding the PCSX2 input-profile .ini files. Change this if PCSX2 isn't the RetroDECK Flatpak (EmuDeck, standalone, etc.). The main PCSX2.ini is found alongside it.",
         default: "~/.var/app/net.retrodeck.retrodeck/config/PCSX2/inputprofiles",
-        placeholder: "~/.var/app/net.retrodeck.retrodeck/config/PCSX2/inputprofiles",
       },
     ],
     summary: (t) => "PCSX2 profile: " + (t.profile || "?"),

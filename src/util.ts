@@ -153,6 +153,31 @@ export function uniqueId(base: string, existing: Record<string, unknown>): strin
   return id;
 }
 
+// Tasks have no stable id, so we tag each with a client-only `__key` for React
+// list identity (index keys reuse the wrong DOM when a task is removed). Keys are
+// assigned on load and stripped before save so they never reach config.json.
+let _taskSeq = 0;
+export function nextTaskKey(): string {
+  return "tk" + ++_taskSeq;
+}
+export function withTaskKeys(cfg: Config): Config {
+  Object.keys(cfg.actions || {}).forEach((aid) => {
+    (cfg.actions[aid].tasks || []).forEach((t) => {
+      if (!t.__key) t.__key = nextTaskKey();
+    });
+  });
+  return cfg;
+}
+export function stripTaskKeys(cfg: Config): Config {
+  const c = clone(cfg);
+  Object.keys(c.actions || {}).forEach((aid) => {
+    (c.actions[aid].tasks || []).forEach((t) => {
+      delete t.__key;
+    });
+  });
+  return c;
+}
+
 // Human-readable summary of a run_action / activate_mode result.
 export function summarize(result: RunResult | undefined): string {
   if (!result) return "Done";
@@ -163,7 +188,7 @@ export function summarize(result: RunResult | undefined): string {
   if (!tasks.length) return result.ok ? "OK" : "Failed";
   const fail = tasks.filter((t) => !t.ok);
   const skip = tasks.filter((t) => t.skipped);
-  if (fail.length) return "Failed: " + fail[0].message;
-  if (skip.length) return "Done (" + skip.length + " skipped): " + skip[0].message;
+  if (fail.length) return "Failed: " + (fail[0].message || "task failed");
+  if (skip.length) return "Done (" + skip.length + " skipped): " + (skip[0].message || "");
   return "Done — " + tasks.length + " task" + (tasks.length === 1 ? "" : "s") + " OK";
 }
