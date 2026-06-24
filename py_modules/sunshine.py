@@ -20,7 +20,6 @@ import ssl
 import json
 import time
 import base64
-import shlex
 import shutil
 import subprocess
 import urllib.request
@@ -159,13 +158,8 @@ def ensure_installed():
 def _ensure_flathub():
     """Add the flathub system remote if it isn't already configured (no-op if it
     is). Best-effort: failures are tolerated, the install/info call reports them."""
-    try:
-        subprocess.run(
-            ["flatpak", "remote-add", "--if-not-exists", "--system", "flathub", FLATHUB_REPO],
-            capture_output=True, text=True, env=_clean_env(), timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    _flatpak(["remote-add", "--if-not-exists", "--system", "flathub", FLATHUB_REPO],
+             timeout=30)  # _flatpak soft-fails on timeout/OSError
 
 
 def update():
@@ -183,11 +177,7 @@ def update():
 def _parse_info(args):
     """Run `flatpak <args>` and parse its 'Key: value' output into a dict."""
     out = {}
-    try:
-        res = subprocess.run(["flatpak"] + args, capture_output=True, text=True,
-                             env=_clean_env(), timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
-        return out
+    res = _flatpak(args, timeout=30)  # soft-fails internally
     if res.returncode != 0:
         return out
     for line in (res.stdout or "").splitlines():
@@ -300,7 +290,11 @@ def stop():
 
 def restart():
     """Stop then start (e.g. to apply a config change). Returns (ok, message)."""
-    stop()
+    ok, msg = stop()
+    if not ok:
+        # A failed stop means the old instance (with the old config) is still up;
+        # start() would just report "already running" and mask that. Surface it.
+        return False, "couldn't stop Sunshine: " + msg
     return start()
 
 
@@ -366,6 +360,17 @@ def get_encoder():
     return ""
 
 
+def _atomic_write(path, text):
+    """Write text to path via a temp file + os.replace, so a crash/full-disk
+    mid-write can't truncate a root-owned Sunshine config/state file (which would
+    lose paired devices). Temp lives in the same dir so the replace is atomic."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
 def set_encoder(value):
     """Write `encoder = value` into Sunshine's config ('' removes it -> auto).
     Sunshine reads its config at launch, so this takes effect on the next start.
@@ -380,9 +385,7 @@ def set_encoder(value):
         kept = [ln for ln in lines if ln.partition("=")[0].strip().lower() != "encoder"]
         if value:
             kept.append("encoder = %s" % value)
-        os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
-        with open(CONF_PATH, "w", encoding="utf-8") as f:
-            f.write("\n".join(kept) + "\n")
+        _atomic_write(CONF_PATH, "\n".join(kept) + "\n")
     except OSError as e:
         return False, "could not write Sunshine config: %s" % e
     return True, "encoder set to %s (applies on next start)" % (value or "auto")
@@ -442,9 +445,7 @@ def _clear_login():
     # Keep everything (incl. paired devices under "root"); only drop the login.
     for k in ("username", "salt", "password"):
         data[k] = ""
-    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    _atomic_write(STATE_FILE, json.dumps(data, indent=4))
 
 
 def set_login(username, password):

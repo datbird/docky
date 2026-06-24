@@ -45,7 +45,6 @@ _AUDIO_PRESETS = {
     "hdmi": ["hdmi"],
     "speakers": ["Speaker"],
     "headphones": ["Headphone"],
-    "internal": ["Speaker"],
 }
 
 
@@ -82,13 +81,19 @@ def set_audio_output(target):
     code, _o, err = _su_deck("pactl set-default-sink " + q)
     if code != 0:
         return False, (err or "could not set default sink").strip()[:200]
-    # Move already-playing streams onto the new default.
+    # Move already-playing streams onto the new default. Track failures so we
+    # don't report success when the currently-playing app didn't actually follow.
     code, out, _ = _su_deck("pactl list short sink-inputs")
+    moved_fail = 0
     if code == 0:
         for line in out.splitlines():
             sid = line.split("\t")[0].strip()
             if sid.isdigit():
-                _su_deck("pactl move-sink-input %s %s" % (sid, q))
+                mc, _mo, _me = _su_deck("pactl move-sink-input %s %s" % (sid, q))
+                if mc != 0:
+                    moved_fail += 1
+    if moved_fail:
+        return True, "audio output -> %s (%d stream(s) couldn't move)" % (match, moved_fail)
     return True, "audio output -> %s" % match
 
 

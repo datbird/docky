@@ -34,11 +34,13 @@ _TRANSITION_TRIGGERS = [
 ]
 
 
-def _fire(mode, why):
+async def _fire(mode, why):
     if not mode:
         return
     decky.logger.info("trigger %s -> mode '%s'", why, mode)
-    docky.activate_mode(mode, allow_running_emu=False)
+    # Offload the (blocking) mode activation so a long-running task can't freeze
+    # the event loop — and with it every frontend RPC and the watcher itself.
+    await asyncio.to_thread(docky.activate_mode, mode, allow_running_emu=False)
 
 
 async def _trigger_watch():
@@ -53,7 +55,10 @@ async def _trigger_watch():
         try:
             cfg = docky.load_config()
             s = cfg["settings"]
-            poll = max(1, int(s.get("pollSeconds", 3)))
+            try:
+                poll = max(1, min(3600, int(s.get("pollSeconds", 3))))
+            except (TypeError, ValueError):
+                poll = 3
             st = docky.load_state()
 
             # resume detection: boot-time advanced far more than awake time.
@@ -63,7 +68,7 @@ async def _trigger_watch():
             slept = (boot1 - boot0) - (mono1 - mono0)
             mono0, boot0 = mono1, boot1
             if not first and s.get("autoResume") and slept > 20:
-                _fire(s.get("resumeMode"), "resume (slept %ds)" % int(slept))
+                await _fire(s.get("resumeMode"), "resume (slept %ds)" % int(slept))
             first = False
 
             # Collect only the baseline fields that changed, then merge them
@@ -77,8 +82,8 @@ async def _trigger_watch():
                 last = st.get(field)
                 if cur != last:
                     if last is not None:
-                        _fire(s.get(on_true) if cur else s.get(on_false),
-                              "%s %s" % (label, "on" if cur else "off"))
+                        await _fire(s.get(on_true) if cur else s.get(on_false),
+                                    "%s %s" % (label, "on" if cur else "off"))
                     changes[field] = cur
             if changes:
                 docky.update_state(**changes)
@@ -125,7 +130,8 @@ class Plugin:
 
     async def get_state(self):
         try:
-            return docky.get_state()
+            # get_state probes hardware/flatpak; keep it off the event loop.
+            return await asyncio.to_thread(docky.get_state)
         except Exception as e:  # noqa: BLE001
             decky.logger.exception("get_state failed")
             return {"error": str(e)}
@@ -158,20 +164,14 @@ class Plugin:
 
     async def set_sunshine_login(self, username, password):
         try:
-            res = docky.set_sunshine_login(username, password)
+            # Resets Sunshine's login + restarts it + hits its HTTPS API — all
+            # blocking; keep it off the event loop.
+            res = await asyncio.to_thread(docky.set_sunshine_login, username, password)
             res["state"] = docky.get_state()
             return res
         except Exception as e:  # noqa: BLE001
             decky.logger.exception("set_sunshine_login failed")
             return {"ok": False, "message": str(e)}
-
-    async def set_autostart_sunshine(self, enabled):
-        try:
-            docky.set_autostart_sunshine(enabled)
-            return {"state": docky.get_state()}
-        except Exception as e:  # noqa: BLE001
-            decky.logger.exception("set_autostart_sunshine failed")
-            return {"error": str(e)}
 
     # Sunshine install/update/version-check hit flatpak + the network, so run
     # them off the event loop to keep the UI responsive.
@@ -229,37 +229,38 @@ class Plugin:
             decky.logger.exception("sunshine_restart failed")
             return {"ok": False, "message": str(e)}
 
+    # Pairing/client calls hit Sunshine's HTTPS API; keep them off the event loop.
     async def sunshine_pair(self, pin, name):
         try:
-            return docky.sunshine_pair(pin, name)
+            return await asyncio.to_thread(docky.sunshine_pair, pin, name)
         except Exception as e:  # noqa: BLE001
             decky.logger.exception("sunshine_pair failed")
             return {"ok": False, "message": str(e)}
 
     async def sunshine_clients(self):
         try:
-            return docky.sunshine_clients()
+            return await asyncio.to_thread(docky.sunshine_clients)
         except Exception as e:  # noqa: BLE001
             decky.logger.exception("sunshine_clients failed")
             return {"ok": False, "clients": [], "message": str(e)}
 
     async def sunshine_unpair(self, uuid):
         try:
-            return docky.sunshine_unpair(uuid)
+            return await asyncio.to_thread(docky.sunshine_unpair, uuid)
         except Exception as e:  # noqa: BLE001
             decky.logger.exception("sunshine_unpair failed")
             return {"ok": False, "message": str(e)}
 
     async def sunshine_unpair_all(self):
         try:
-            return docky.sunshine_unpair_all()
+            return await asyncio.to_thread(docky.sunshine_unpair_all)
         except Exception as e:  # noqa: BLE001
             decky.logger.exception("sunshine_unpair_all failed")
             return {"ok": False, "message": str(e)}
 
     async def sunshine_set_client_enabled(self, uuid, enabled):
         try:
-            return docky.sunshine_set_client_enabled(uuid, enabled)
+            return await asyncio.to_thread(docky.sunshine_set_client_enabled, uuid, enabled)
         except Exception as e:  # noqa: BLE001
             decky.logger.exception("sunshine_set_client_enabled failed")
             return {"ok": False, "message": str(e)}

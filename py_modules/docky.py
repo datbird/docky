@@ -191,8 +191,6 @@ def _chown_to_parent(path):
         pass
 
 
-
-
 def _run_proc(argv, shell=False, cwd=None, timeout=DEFAULT_TIMEOUT, env=None):
     try:
         cp = subprocess.run(
@@ -318,12 +316,7 @@ def run_task(task, allow_running_emu=True):
             r.update(ok=ok, message=msg)
 
         elif t == "sunshine_composition":
-            # New tasks carry mode = on/off/toggle; old ones had a boolean
-            # "enabled" — fall back to that for backward compatibility.
-            mode = task.get("mode")
-            if not mode:
-                mode = "on" if task.get("enabled") else "off"
-            ok, msg = sunshine.apply_composition(mode)
+            ok, msg = sunshine.apply_composition(_task_mode(task))
             r.update(ok=ok, message=msg)
 
         elif t == "sunshine_encoder":
@@ -335,9 +328,7 @@ def run_task(task, allow_running_emu=True):
             r.update(ok=ok, message=msg)
 
         elif t == "builtin_controller":
-            mode = task.get("mode")
-            if not mode:
-                mode = "on" if task.get("enabled") else "off"
+            mode = _task_mode(task)
             if mode == "toggle":
                 cur = deckops.builtin_controller_enabled()
                 ok, msg = deckops.set_builtin_controller(not cur)
@@ -464,13 +455,18 @@ def _task_bool_status(task):
     return None
 
 
+def _task_mode(task):
+    """on/off/toggle for a stateful task. New tasks carry `mode`; older ones had a
+    boolean `enabled` — fall back to that for backward compatibility."""
+    return task.get("mode") or ("on" if task.get("enabled") else "off")
+
+
 def _task_verb(task):
     """Verb describing what a stateful task does, for its button label
     ("On"/"Off"/"Toggle"), or None for non-stateful tasks."""
     t = task.get("type")
     if t in ("sunshine_composition", "builtin_controller"):
-        mode = task.get("mode") or ("on" if task.get("enabled") else "off")
-        return {"on": "On", "off": "Off", "toggle": "Toggle"}.get(mode, "Toggle")
+        return {"on": "On", "off": "Off", "toggle": "Toggle"}.get(_task_mode(task), "Toggle")
     return None
 
 
@@ -676,13 +672,6 @@ def sunshine_set_client_enabled(uuid, enabled):
     st = load_state()
     ok, msg = sunshine.set_client_enabled(uuid, enabled, st.get("sunshineAuth"))
     return {"ok": ok, "message": msg}
-
-
-def set_autostart_sunshine(enabled):
-    cfg = load_config()
-    cfg["settings"]["autostartSunshine"] = bool(enabled)
-    save_config(cfg)
-    return cfg["settings"]
 
 
 # Trigger toggle keys -> the state field they baseline + how to read it now, so
