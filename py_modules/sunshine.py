@@ -115,12 +115,25 @@ def is_running():
         return False
 
 
+FLATHUB_REPO = "https://flathub.org/repo/flathub.flatpakrepo"
+
+
 def ensure_installed():
-    """Install (or update) the Sunshine flatpak from flathub, system scope."""
+    """Install (or update) the Sunshine flatpak from flathub, system scope.
+
+    Self-sufficient on a fresh machine: ensures the flathub system remote exists
+    first (no-op if already configured), then installs from it explicitly so the
+    install never depends on remote state another tool happened to leave behind."""
     if is_installed():
         return True, "Sunshine already installed"
     try:
-        res = _flatpak(["install", "--system", "--noninteractive", "--or-update", APP_ID])
+        # Guarantee the flathub system remote exists before installing from it.
+        subprocess.run(
+            ["flatpak", "remote-add", "--if-not-exists", "--system", "flathub", FLATHUB_REPO],
+            capture_output=True, text=True, env=_clean_env(),
+        )
+        res = _flatpak(["install", "--system", "--noninteractive", "--or-update",
+                        "flathub", APP_ID])
     except OSError as e:
         return False, "flatpak not available: %s" % e
     if res.returncode == 0:
