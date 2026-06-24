@@ -858,6 +858,15 @@ export const EditorModal: VFC<{
         {sunMsg ? (
           <div style={{ fontSize: "0.8em", opacity: 0.8, marginTop: "10px" }}>{sunMsg}</div>
         ) : null}
+
+        <div style={{ fontWeight: 700, margin: "14px 0 2px" }}>Behavior</div>
+        <ToggleField
+          label="Start Sunshine at boot"
+          description="Launch Sunshine when Docky loads after a reboot"
+          checked={cfg.settings.autostartSunshine !== false}
+          disabled={busy}
+          onChange={(on) => mutate((n) => { n.settings.autostartSunshine = on; })}
+        />
       </div>
     );
   }

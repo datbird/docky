@@ -699,7 +699,9 @@
                 window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px", marginTop: "10px" } },
                     info && !info.installed ? (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: sunBusy, onClick: () => doSunshine("sunshine_install", "Installing") }, "Install & enable Sunshine")) : (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: sunBusy || !(info && info.updateAvailable), onClick: () => doSunshine("sunshine_update", "Updating") }, "Update Sunshine")),
                     window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: sunBusy, onClick: refreshSunshine }, "Refresh")),
-                sunMsg ? (window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.8, marginTop: "10px" } }, sunMsg)) : null));
+                sunMsg ? (window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.8, marginTop: "10px" } }, sunMsg)) : null,
+                window.SP_REACT.createElement("div", { style: { fontWeight: 700, margin: "14px 0 2px" } }, "Behavior"),
+                window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Start Sunshine at boot", description: "Launch Sunshine when Docky loads after a reboot", checked: cfg.settings.autostartSunshine !== false, disabled: busy, onChange: (on) => mutate((n) => { n.settings.autostartSunshine = on; }) })));
         }
         // ---- AUTO-DOCK TAB ----
         function renderAutoDock() {
@@ -968,22 +970,6 @@
                 setMsg("Error: " + errText(err));
             });
         }
-        function toggleAutostartSunshine(v) {
-            setBusy(true);
-            call("set_autostart_sunshine", { enabled: v })
-                .then((r) => {
-                setBusy(false);
-                if (r && r.state)
-                    setState(r.state);
-                else
-                    refresh();
-                setMsg("Start Sunshine at boot " + (v ? "ON" : "OFF"));
-            })
-                .catch((err) => {
-                setBusy(false);
-                setMsg("Error: " + errText(err));
-            });
-        }
         function sunshineControl(method, verb) {
             setBusy(true);
             setMsg(verb + " Sunshine…");
@@ -1059,9 +1045,7 @@
                             window.SP_REACT.createElement(RestartIcon, null)),
                         window.SP_REACT.createElement(IconButton, { disabled: busy || !(state.sunshine && state.sunshine.installed), onClick: () => state.sunshine && state.sunshine.running
                                 ? sunshineControl("sunshine_stop", "Stopping")
-                                : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null))))),
-                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Start Sunshine at boot", description: "Launch Sunshine when Docky loads after a reboot", checked: sett.autostartSunshine !== false, disabled: busy, onChange: toggleAutostartSunshine }))),
+                                : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null)))))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Favorites" }, favorites.length ? (favorites.map((f) => {
                 const isActive = f.kind === "mode" && f.id === state.activeMode;
                 return (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "f_" + f.kind + "_" + f.id },

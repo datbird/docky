@@ -149,21 +149,6 @@ const Content: VFC = () => {
       });
   }
 
-  function toggleAutostartSunshine(v: boolean) {
-    setBusy(true);
-    call<{ state?: DockyState }>("set_autostart_sunshine", { enabled: v })
-      .then((r) => {
-        setBusy(false);
-        if (r && r.state) setState(r.state);
-        else refresh();
-        setMsg("Start Sunshine at boot " + (v ? "ON" : "OFF"));
-      })
-      .catch((err) => {
-        setBusy(false);
-        setMsg("Error: " + errText(err));
-      });
-  }
-
   function sunshineControl(
     method: "sunshine_start" | "sunshine_stop" | "sunshine_restart",
     verb: string
@@ -318,15 +303,6 @@ const Content: VFC = () => {
               )}
             </IconButton>
           </Focusable>
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <ToggleField
-            label="Start Sunshine at boot"
-            description="Launch Sunshine when Docky loads after a reboot"
-            checked={sett.autostartSunshine !== false}
-            disabled={busy}
-            onChange={toggleAutostartSunshine}
-          />
         </PanelSectionRow>
       </PanelSection>
 
