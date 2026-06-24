@@ -122,6 +122,7 @@ Dock the Deck and the `Docked` mode runs automatically. Pin either mode as a
 | [Sunshine](docs/sunshine.md) | Engine selection, install/update, pairing, encoder, composition |
 | [Configuration](docs/configuration.md) | `config.json` / `state.json` reference |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
+| [Design notes](docs/design-notes.md) | Accepted trade-offs & known limitations, with rationale |
 | [Development](docs/development.md) | Architecture, build/dev loop, deploy |
 
 ## Permissions

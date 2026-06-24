@@ -80,6 +80,10 @@ happens, kill leftover `Docky (...main.py)` processes by PID and
 - The frontend is gamepad-navigated: wrap side-by-side button rows in
   `<Focusable flow-children="horizontal">` so the d-pad moves left/right.
 
+For the *why* behind these and other deliberate trade-offs (root backend, fan
+daemon handling, polling, the `Stepper` vs `SliderField` choice, etc.), see
+[Design notes](design-notes.md) before changing them.
+
 ## Verifying
 
 There's no automated test suite yet. Before committing:
