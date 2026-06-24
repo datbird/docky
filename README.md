@@ -89,7 +89,8 @@ Neither is touched by install/uninstall.
 ## Install
 
 ```bash
-sudo ~/repos/docky/install.sh
+cd docky          # wherever you cloned it
+sudo ./install.sh
 ```
 
 Game Mode → Quick Access (•••) → Decky → **Docky**. Re-run `install.sh` to

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install/update the Docky Decky plugin.  Run:  sudo ~/repos/docky/install.sh
+# Install/update the Docky Decky plugin.  Run from the repo root:  sudo ./install.sh
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"
 DEST="/home/deck/homebrew/plugins/docky"
