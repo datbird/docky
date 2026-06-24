@@ -11,6 +11,10 @@ streaming.
 Everything is built and edited in the Quick Access panel — no config files, no
 Desktop Mode required.
 
+<p align="center">
+  <img src="docs/images/panel.png" alt="Docky in the Steam Deck Quick Access menu — Favorites with a live status LED" width="300">
+</p>
+
 ```
 Task   — one atomic operation (a built-in fix, a file op, or run a script/binary)
 Action — an ordered list of Tasks
@@ -34,6 +38,31 @@ Trigger— an event (dock/undock, AC, controller, resume, startup) → a Mode
   `decky-sunshine` plugin (auto-detected).
 - **In-Game-Mode editor** — build Actions, Modes, Favorites, Triggers, and
   Sunshine settings from the gear menu; nothing persists until you Save.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td valign="top" align="center">
+      <img src="docs/images/triggers.png" width="240"><br>
+      <sub>Triggers — run a Mode on dock / AC / controller / resume / startup</sub>
+    </td>
+    <td valign="top" align="center">
+      <img src="docs/images/editor-actions.png" width="340"><br>
+      <sub>In-Game-Mode editor (Actions / Modes / Favorites / Sunshine / Triggers)</sub>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top" align="center">
+      <img src="docs/images/editor-sunshine.png" width="340"><br>
+      <sub>Sunshine — engine selection, version, install/update</sub>
+    </td>
+    <td valign="top" align="center">
+      <img src="docs/images/pair.png" width="340"><br>
+      <sub>Moonlight pairing & paired-device management</sub>
+    </td>
+  </tr>
+</table>
 
 ## Install
 

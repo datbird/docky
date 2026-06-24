@@ -7,6 +7,13 @@ A trigger runs a **Mode** automatically when something changes. Each trigger has
 
 Both are needed: the toggle arms the trigger; the mapping says which Mode to run.
 
+<p align="center">
+  <img src="images/triggers.png" alt="Triggers section in the panel" width="260">
+  &nbsp;&nbsp;
+  <img src="images/editor-triggers.png" alt="Trigger mode mapping in the editor" width="340">
+</p>
+<p align="center"><sub>Left: arm each trigger in the panel. Right: map each to a Mode (gear → Triggers).</sub></p>
+
 ## Available triggers
 
 | Trigger | Fires on | Maps to |

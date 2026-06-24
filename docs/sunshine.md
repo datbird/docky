@@ -8,6 +8,8 @@ which is why Docky's non-launch tasks work either way.
 
 ## Engine selection
 
+<p align="center"><img src="images/editor-sunshine.png" alt="Docky Sunshine tab" width="420"></p>
+
 **gear → Sunshine → Sunshine engine.** Default is **Auto**:
 
 | Engine | Behavior |
@@ -49,6 +51,8 @@ own autostart).
 ## Pairing Moonlight clients
 
 Panel → **Pair** (enabled once Sunshine is running). The Pair modal:
+
+<p align="center"><img src="images/pair.png" alt="Docky pairing modal" width="420"></p>
 
 1. **Set a login** if none is stored — Docky takes ownership of Sunshine's admin
    credentials (this resets the username/password; **existing paired devices are

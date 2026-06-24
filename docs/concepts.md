@@ -11,6 +11,9 @@ Trigger — an event that activates a Mode
 
 Plus **Favorites**, which pin Actions/Modes to the panel for one-tap access.
 
+<p align="center"><img src="images/editor-actions.png" alt="Docky editor — Actions tab" width="420"></p>
+<p align="center"><sub>The editor (gear → Settings): Actions, Modes, Favorites, Sunshine, and Triggers tabs.</sub></p>
+
 ## Task
 
 The smallest unit of work — apply an audio output, write a file, run a script,
@@ -39,6 +42,9 @@ Actions in order. Modes are what **Triggers map to** — e.g. "when docked →
 Activating a Mode records it as the **active mode** (shown in the panel's info
 popup). Modes are also runnable manually (pin one as a Favorite).
 
+<p align="center"><img src="images/editor-modes.png" alt="Docky editor — Modes tab" width="420"></p>
+<p align="center"><sub>A Mode toggles on the Actions it runs.</sub></p>
+
 ## Trigger
 
 An event that activates a Mode automatically. Each trigger is toggled in the
@@ -61,6 +67,9 @@ A pinned Action or Mode shown in the panel's **Favorites** section for one-tap
 use. Favorites are ordered (sort them in the editor). A favorite whose underlying
 Action has a **stateful** task (e.g. composition) shows a live **on/off LED** and
 labels the button by what it does ("Toggle:", "On:", "Off:").
+
+<p align="center"><img src="images/editor-favorites.png" alt="Docky editor — Favorites tab" width="420"></p>
+<p align="center"><sub>Pin Actions/Modes and sort them with ▲▼; they appear in the panel's Favorites section.</sub></p>
 
 ## How it fits together
 
