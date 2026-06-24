@@ -22,6 +22,7 @@ import glob
 
 import padswap  # proven PCSX2 input-profile logic
 import sunshine  # Docky's own Sunshine flatpak control
+import deckops   # built-in Steam Deck dock fixes (audio/controller/tdp/flatpak)
 
 CONFIG_DIR = os.path.expanduser("~/.config/docky")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
@@ -295,6 +296,29 @@ def run_task(task, allow_running_emu=True):
             ok, msg = sunshine.set_encoder(task.get("encoder", ""))
             r.update(ok=ok, message=msg)
 
+        elif t == "audio_output":
+            ok, msg = deckops.set_audio_output(task.get("target", ""))
+            r.update(ok=ok, message=msg)
+
+        elif t == "builtin_controller":
+            mode = task.get("mode")
+            if not mode:
+                mode = "on" if task.get("enabled") else "off"
+            if mode == "toggle":
+                cur = deckops.builtin_controller_enabled()
+                ok, msg = deckops.set_builtin_controller(not cur)
+            else:
+                ok, msg = deckops.set_builtin_controller(mode == "on")
+            r.update(ok=ok, message=msg)
+
+        elif t == "tdp":
+            ok, msg = deckops.set_tdp(task.get("watts"))
+            r.update(ok=ok, message=msg)
+
+        elif t == "flatpak_update":
+            ok, msg = deckops.flatpak_update(task.get("app", ""))
+            r.update(ok=ok, message=msg)
+
         else:
             r.update(message="unknown task type: %r" % t)
     except KeyError as e:
@@ -401,6 +425,8 @@ def _task_bool_status(task):
     t = task.get("type")
     if t == "sunshine_composition":
         return sunshine.get_composition()
+    if t == "builtin_controller":
+        return deckops.builtin_controller_enabled()
     return None
 
 
@@ -408,7 +434,7 @@ def _task_verb(task):
     """Verb describing what a stateful task does, for its button label
     ("On"/"Off"/"Toggle"), or None for non-stateful tasks."""
     t = task.get("type")
-    if t == "sunshine_composition":
+    if t in ("sunshine_composition", "builtin_controller"):
         mode = task.get("mode") or ("on" if task.get("enabled") else "off")
         return {"on": "On", "off": "Off", "toggle": "Toggle"}.get(mode, "Toggle")
     return None

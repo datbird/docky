@@ -118,6 +118,57 @@ export const TASK_DEFS: TaskTypeDef[] = [
     summary: (t) => "Sunshine encoder: " + (t.encoder || "auto"),
   },
   {
+    type: "audio_output",
+    label: "Audio: switch output device (fix dock audio)",
+    builtin: true,
+    fields: [
+      {
+        key: "target",
+        kind: "select",
+        label: "Output",
+        options: [
+          { data: "hdmi", label: "HDMI / external (dock)" },
+          { data: "speakers", label: "Internal speakers" },
+          { data: "headphones", label: "Headphones" },
+        ],
+      },
+    ],
+    summary: (t) => "Audio output: " + (t.target || "?"),
+  },
+  {
+    type: "builtin_controller",
+    label: "Controller: built-in (fix dock controller order)",
+    builtin: true,
+    fields: [
+      {
+        key: "mode",
+        kind: "select",
+        label: "Built-in controller",
+        options: [
+          { data: "on", label: "On (enabled)" },
+          { data: "off", label: "Off (disabled — let external be P1)" },
+          { data: "toggle", label: "Toggle" },
+        ],
+      },
+    ],
+    summary: (t) =>
+      "Built-in controller: " + (t.mode || (t.enabled ? "on" : "off")),
+  },
+  {
+    type: "tdp",
+    label: "Performance: set TDP watts (docked power)",
+    builtin: true,
+    fields: [{ key: "watts", kind: "text", label: "TDP (watts, e.g. 15)" }],
+    summary: (t) => "TDP: " + (t.watts ? t.watts + "W" : "?"),
+  },
+  {
+    type: "flatpak_update",
+    label: "Maintenance: update Flatpak app(s)",
+    builtin: true,
+    fields: [{ key: "app", kind: "text", label: "App id (blank = all)" }],
+    summary: (t) => "Flatpak update: " + (t.app || "all"),
+  },
+  {
     type: "run",
     label: "Run command",
     fields: [
