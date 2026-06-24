@@ -1007,7 +1007,7 @@
         const [state, setState] = react.useState(null);
         const [busy, setBusy] = react.useState(false);
         const [msg, setMsg] = react.useState("");
-        const [favOpen, setFavOpen] = react.useState(true);
+        const [favOpen, setFavOpen] = react.useState(false);
         const [triggersOpen, setTriggersOpen] = react.useState(false);
         function refresh() {
             return call("get_state", {})

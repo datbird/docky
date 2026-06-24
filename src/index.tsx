@@ -141,7 +141,7 @@ const Content: VFC = () => {
   const [state, setState] = useState<DockyState | null>(null);
   const [busy, setBusy] = useState<boolean>(false);
   const [msg, setMsg] = useState<string>("");
-  const [favOpen, setFavOpen] = useState<boolean>(true);
+  const [favOpen, setFavOpen] = useState<boolean>(false);
   const [triggersOpen, setTriggersOpen] = useState<boolean>(false);
 
   function refresh(): Promise<void> {
