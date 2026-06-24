@@ -859,7 +859,10 @@ export const EditorModal: VFC<{
     const strict = cfg.settings.requireExternalDisplay !== false; // default true
     return (
       <div>
-        <div style={{ fontWeight: 700, margin: "2px 0 2px" }}>Dock detection</div>
+        <div style={{ fontWeight: 700, margin: "2px 0 2px" }}>Dock</div>
+        <div style={{ fontSize: "0.8em", opacity: 0.6, marginBottom: "6px" }}>
+          How a dock is detected, and which mode to switch to on dock / undock.
+        </div>
         <ToggleField
           label="Require an external display"
           description="Docked only when a monitor is actually connected. Uncheck to detect a dock that has no display attached."
@@ -880,11 +883,6 @@ export const EditorModal: VFC<{
           disabled={strict}
           onChange={(on) => mutate((n) => { n.settings.requireUsbHub = on; })}
         />
-
-        <div style={{ fontWeight: 700, margin: "12px 0 2px" }}>Mode mapping</div>
-        <div style={{ fontSize: "0.8em", opacity: 0.6, marginBottom: "6px" }}>
-          Which mode to switch to when docking / undocking.
-        </div>
         <DropdownItem
           label="When docked → mode"
           rgOptions={modeOpts}
