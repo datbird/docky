@@ -3,6 +3,14 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] — 2026-06-29
+
+### Fixed
+- "Hand control back to SteamOS" now shows a toast confirmation. The action
+  always worked, but its only feedback was the faint inline status line far from
+  the button — and with nothing being enforced there's no visible hardware
+  change — so it looked like nothing happened.
+
 ## [1.2.0] — 2026-06-29
 
 ### Added

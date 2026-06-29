@@ -1572,7 +1572,28 @@
             fanTdpCall("set_fan_mode", { mode }, "Fan: " + mode);
         }
         function releaseControl() {
-            fanTdpCall("release_control", {}, "Handing control to SteamOS");
+            // A deliberate one-shot action — toast so it's clearly acknowledged (the
+            // inline status line is faint and far from the button, and when nothing was
+            // being enforced there's no visible hardware change to confirm it worked).
+            setBusy(true);
+            setMsg("Handing control to SteamOS…");
+            call("release_control", {})
+                .then((r) => {
+                setBusy(false);
+                if (r && r.state)
+                    setState(r.state);
+                else
+                    refresh();
+                const m = (r && r.message) || "Handed control back to SteamOS";
+                setMsg(m);
+                toast(m);
+            })
+                .catch((err) => {
+                setBusy(false);
+                const m = "Error: " + errText(err);
+                setMsg(m);
+                toast(m);
+            });
         }
         function openEditor(initialTab) {
             setBusy(true);
