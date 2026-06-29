@@ -67,6 +67,15 @@ def default_config():
             # Launch Sunshine when the plugin loads (i.e. at boot), so streaming
             # is available after a reboot without opening the panel.
             "autostartSunshine": True,
+            # Force gamescope full-frame composition (fixes the docked
+            # stretched/squeezed capture). The gamescope atom is runtime-only
+            # and resets every boot, so Docky persists the preference here and
+            # re-applies it on load and on each Sunshine (re)start.
+            "forceComposition": False,
+            # Keep an integrated (Docky-owned) Sunshine alive: a background
+            # watchdog relaunches it if it crashes (e.g. the known
+            # session::video segfault). Honors an explicit Stop from the panel.
+            "sunshineWatchdog": True,
             # --- additional triggers (each a toggle + its own mode mapping) ---
             # AC power connect/disconnect.
             "autoAcDetection": False,
@@ -778,7 +787,9 @@ def get_state():
         "installed_plugins": plugins,
         "sunshine": dict(sunshine.status(), credsStored=bool(st.get("sunshineAuth")),
                          engine=sunshine_engine(cfg),
-                         resolvedEngine=resolved_engine(cfg, plugins)),
+                         resolvedEngine=resolved_engine(cfg, plugins),
+                         forceComposition=bool((cfg.get("settings") or {}).get("forceComposition")),
+                         watchdog=bool((cfg.get("settings") or {}).get("sunshineWatchdog"))),
         "fan": fan_status(cfg),
         "tdp": tdp_status(cfg),
         "fanProfiles": [{"id": k, "name": v.get("name", k)}
@@ -790,6 +801,12 @@ def get_state():
 
 
 DECKY_SUNSHINE = "decky-sunshine"
+
+# Whether the user explicitly stopped Sunshine from the panel. The watchdog
+# won't relaunch a Sunshine the user deliberately stopped; a Start/Restart
+# clears it. Runtime-only (resets on plugin reload/boot, where autostart
+# governs the initial state instead).
+_sunshine_user_stopped = False
 
 
 def sunshine_engine(cfg=None):
@@ -849,7 +866,11 @@ def autostart_sunshine():
         return False, True, "autostart disabled"
     if not sunshine.is_installed():
         return False, True, "Sunshine not installed"
+    global _sunshine_user_stopped
     ok, msg = sunshine.start()
+    if ok:
+        _sunshine_user_stopped = False
+        apply_persisted_composition()
     return True, ok, msg
 
 
@@ -878,19 +899,84 @@ def sunshine_version_info():
 
 
 def sunshine_start():
+    global _sunshine_user_stopped
     ok, msg = _eng_start()
+    if ok:
+        _sunshine_user_stopped = False
+        apply_persisted_composition()
     return {"ok": ok, "message": msg}
 
 
 def sunshine_stop():
-    """Stop Sunshine (flatpak kill works for either engine)."""
+    """Stop Sunshine (flatpak kill works for either engine). Marks user intent
+    so the watchdog won't immediately relaunch it."""
+    global _sunshine_user_stopped
+    _sunshine_user_stopped = True
     ok, msg = sunshine.stop()
     return {"ok": ok, "message": msg}
 
 
 def sunshine_restart():
+    global _sunshine_user_stopped
     ok, msg = _eng_restart()
+    if ok:
+        _sunshine_user_stopped = False
+        apply_persisted_composition()
     return {"ok": ok, "message": msg}
+
+
+def apply_persisted_composition(cfg=None):
+    """Re-apply the saved force-composition preference to gamescope's runtime
+    atom (which resets every boot/resume). Returns (ok, message)."""
+    cfg = cfg or load_config()
+    enabled = bool((cfg.get("settings") or {}).get("forceComposition"))
+    return sunshine.set_composition(enabled)
+
+
+def set_force_composition(enabled):
+    """Persist the force-composition preference and apply it live now."""
+    enabled = bool(enabled)
+    with _config_lock:
+        cfg = load_config()
+        cfg["settings"]["forceComposition"] = enabled
+        save_config(cfg)
+    ok, msg = sunshine.set_composition(enabled)
+    return {"ok": ok, "message": msg, "forceComposition": enabled}
+
+
+def set_sunshine_watchdog(enabled):
+    """Persist whether the watchdog should keep an integrated Sunshine alive."""
+    enabled = bool(enabled)
+    with _config_lock:
+        cfg = load_config()
+        cfg["settings"]["sunshineWatchdog"] = enabled
+        save_config(cfg)
+    return {"ok": True, "watchdog": enabled,
+            "message": "watchdog " + ("on" if enabled else "off")}
+
+
+def sunshine_should_autorestart():
+    """True when Docky should relaunch a crashed Sunshine: watchdog enabled,
+    engine integrated, installed, the user didn't stop it, and it isn't running.
+    """
+    cfg = load_config()
+    if not cfg["settings"].get("sunshineWatchdog"):
+        return False
+    if _sunshine_user_stopped:
+        return False
+    if resolved_engine(cfg) != "integrated":
+        return False
+    if not sunshine.is_installed():
+        return False
+    return not sunshine.is_running()
+
+
+def sunshine_autorestart():
+    """Relaunch Sunshine after a crash and re-apply composition. (ok, message)."""
+    ok, msg = sunshine.start()
+    if ok:
+        apply_persisted_composition()
+    return ok, msg
 
 
 def set_sunshine_login(username, password):

@@ -419,6 +419,28 @@ const Content: VFC = () => {
             </IconButton>
           </Focusable>
         </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="Fix stretched image when docked"
+            description="Forces gamescope composition; re-applied automatically after reboots."
+            checked={!!(state.sunshine && state.sunshine.forceComposition)}
+            disabled={busy}
+            onChange={(v: boolean) =>
+              fanTdpCall("set_force_composition", { enabled: v }, "Updating composition")
+            }
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="Keep Sunshine running"
+            description="Relaunch Sunshine automatically if it crashes."
+            checked={!(state.sunshine && state.sunshine.watchdog === false)}
+            disabled={busy}
+            onChange={(v: boolean) =>
+              fanTdpCall("set_sunshine_watchdog", { enabled: v }, "Updating watchdog")
+            }
+          />
+        </PanelSectionRow>
       </PanelSection>
 
       <PanelSection>

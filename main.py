@@ -174,12 +174,51 @@ async def _autostart_sunshine():
         decky.logger.exception("autostart Sunshine failed")
 
 
+async def _startup_composition():
+    # Re-apply the saved force-composition preference on load (boot): the
+    # gamescope atom is runtime-only and resets every reboot. Module-level —
+    # Decky's class wrapping breaks self.method().
+    try:
+        await asyncio.to_thread(docky.apply_persisted_composition)
+    except Exception:  # noqa: BLE001
+        decky.logger.exception("startup composition failed")
+
+
+async def _sunshine_watch():
+    # Keep an integrated, Docky-owned Sunshine alive: relaunch it if it crashes
+    # (e.g. the known session::video segfault). Honors an explicit Stop (docky
+    # tracks user intent) and backs off after failures so a Sunshine that dies
+    # on startup can't spin. Module-level — Decky's class wrapping breaks self.*.
+    fails = 0
+    while True:
+        await asyncio.sleep(6)
+        try:
+            if not await asyncio.to_thread(docky.sunshine_should_autorestart):
+                fails = 0
+                continue
+            ok, msg = await asyncio.to_thread(docky.sunshine_autorestart)
+            if ok:
+                decky.logger.warning("Sunshine watchdog: relaunched (%s)", msg)
+            else:
+                fails += 1
+                decky.logger.warning("Sunshine watchdog: relaunch failed (%s)", msg)
+            # Pace relaunch attempts; widen the gap after repeated failures.
+            await asyncio.sleep(min(120, 10 + 15 * fails))
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            decky.logger.exception("Sunshine watchdog error")
+            await asyncio.sleep(10)
+
+
 class Plugin:
     _watch_task = None
     _autostart_task = None
     _startup_task = None
     _fan_task = None
     _tdp_task = None
+    _composition_task = None
+    _sunshine_watch_task = None
 
     # ---- frontend-callable ----
 
@@ -282,6 +321,24 @@ class Plugin:
             return res
         except Exception as e:  # noqa: BLE001
             decky.logger.exception("sunshine_restart failed")
+            return {"ok": False, "message": str(e)}
+
+    async def set_force_composition(self, enabled):
+        try:
+            res = await asyncio.to_thread(docky.set_force_composition, enabled)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("set_force_composition failed")
+            return {"ok": False, "message": str(e)}
+
+    async def set_sunshine_watchdog(self, enabled):
+        try:
+            res = await asyncio.to_thread(docky.set_sunshine_watchdog, enabled)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("set_sunshine_watchdog failed")
             return {"ok": False, "message": str(e)}
 
     # Pairing/client calls hit Sunshine's HTTPS API; keep them off the event loop.
@@ -397,11 +454,14 @@ class Plugin:
         self._startup_task = asyncio.create_task(_startup_trigger())
         self._fan_task = asyncio.create_task(_fan_watch())
         self._tdp_task = asyncio.create_task(_tdp_watch())
+        self._composition_task = asyncio.create_task(_startup_composition())
+        self._sunshine_watch_task = asyncio.create_task(_sunshine_watch())
         decky.logger.info("Docky loaded; config=%s", docky.CONFIG_PATH)
 
     async def _unload(self):
         for task in (self._watch_task, self._autostart_task, self._startup_task,
-                     self._fan_task, self._tdp_task):
+                     self._fan_task, self._tdp_task, self._composition_task,
+                     self._sunshine_watch_task):
             if task:
                 task.cancel()
         decky.logger.info("Docky unloaded")

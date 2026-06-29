@@ -144,6 +144,8 @@ export interface DockyState {
     credsStored?: boolean;
     engine?: string;
     resolvedEngine?: string;
+    forceComposition?: boolean;
+    watchdog?: boolean;
   };
   fan?: FanStatus;
   tdp?: TdpStatus;

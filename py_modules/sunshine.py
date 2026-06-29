@@ -243,21 +243,32 @@ def _wait(predicate, tries=24, delay=0.25):
     return predicate()
 
 
+# Our most recent launch's Popen. We never wait() on it (Sunshine is detached),
+# so when it exits — e.g. crashes — it becomes a zombie under the root backend.
+# Poll it before the next launch to reap it, so repeated watchdog relaunches
+# don't accumulate defunct docky-bwrap processes. Only ever our own child, so
+# this can't disturb other threads' subprocess.run() calls.
+_last_proc = None
+
+
 def start():
     """Launch Sunshine in the Game-Mode session. Returns (ok, message).
 
     Does NOT auto-install — installation is opt-in via Settings → Sunshine."""
+    global _last_proc
     if is_running():
         return True, "Sunshine already running"
     if not is_installed():
         return False, "Sunshine is not installed — install it in Settings → Sunshine"
+    if _last_proc is not None and _last_proc.poll() is not None:
+        _last_proc = None  # previous launch exited; its child has been reaped
     if not _prepare_bwrap():
         return False, "could not prepare capture helper (bwrap)"
     try:
         # Launch from whichever scope it's installed in (system by default).
         scope = installed_scope() or "--system"
         # Detached so it outlives this request; its own session group.
-        subprocess.Popen(
+        _last_proc = subprocess.Popen(
             ["flatpak", "run", scope, "--socket=wayland", APP_ID],
             env=_launch_env(),
             stdout=subprocess.DEVNULL,

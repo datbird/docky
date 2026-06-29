@@ -1634,7 +1634,11 @@
                             window.SP_REACT.createElement(RestartIcon, null)),
                         window.SP_REACT.createElement(IconButton, { disabled: busy || !(state.sunshine && state.sunshine.installed), onClick: () => state.sunshine && state.sunshine.running
                                 ? sunshineControl("sunshine_stop", "Stopping")
-                                : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null)))))),
+                                : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null))))),
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Fix stretched image when docked", description: "Forces gamescope composition; re-applied automatically after reboots.", checked: !!(state.sunshine && state.sunshine.forceComposition), disabled: busy, onChange: (v) => fanTdpCall("set_force_composition", { enabled: v }, "Updating composition") })),
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Keep Sunshine running", description: "Relaunch Sunshine automatically if it crashes.", checked: !(state.sunshine && state.sunshine.watchdog === false), disabled: busy, onChange: (v) => fanTdpCall("set_sunshine_watchdog", { enabled: v }, "Updating watchdog") }))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(SectionHeader, { title: "Fan", open: fanOpen, onToggle: () => setFanOpen(!fanOpen) })),

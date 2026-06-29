@@ -3,6 +3,24 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-06-29
+
+### Added
+- **Sunshine watchdog**: when Docky owns Sunshine (integrated engine), a
+  background watchdog relaunches it automatically if it crashes, so a streaming
+  host failure recovers on its own instead of staying down. It honors an explicit
+  Stop from the panel and backs off after repeated failures. New **"Keep Sunshine
+  running"** toggle (default on).
+- **Persistent force-composition**: the "fix stretched image when docked" setting
+  is now remembered and re-applied on boot and on every Sunshine start. The
+  underlying gamescope composition atom is runtime-only and resets each reboot, so
+  Docky persists the preference and reasserts it. New **"Fix stretched image when
+  docked"** toggle in the Sunshine panel.
+
+### Fixed
+- Reap the detached Sunshine launch process so repeated (re)launches no longer
+  leave defunct `bwrap` helper processes behind.
+
 ## [1.1.0] — 2026-06-24
 
 ### Added
