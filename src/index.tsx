@@ -172,6 +172,7 @@ const Content: VFC = () => {
   const [triggersOpen, setTriggersOpen] = useState<boolean>(false);
   const [fanOpen, setFanOpen] = useState<boolean>(false);
   const [tdpOpen, setTdpOpen] = useState<boolean>(false);
+  const [sunshineOpen, setSunshineOpen] = useState<boolean>(false);
   // Local draft for the TDP manual slider (committed on "Apply").
   const [tdpDraft, setTdpDraft] = useState<number | null>(null);
 
@@ -396,84 +397,140 @@ const Content: VFC = () => {
         </PanelSectionRow>
       </PanelSection>
 
-      <PanelSection title="Sunshine">
+      <PanelSection>
         <PanelSectionRow>
-          <Focusable
-            flow-children="horizontal"
-            style={{ display: "flex", gap: "8px" }}
-          >
-            <IconButton
-              label="Pair"
-              flex={2}
-              disabled={busy || !(state.sunshine && state.sunshine.running)}
-              onClick={() =>
-                showModal(
-                  <PairModal
-                    credsStored={
-                      !!(state.sunshine && state.sunshine.credsStored)
-                    }
-                    onState={(st) => st && setState(st)}
-                  />
-                )
-              }
-            >
-              <DockIcon />
-            </IconButton>
-            <IconButton
-              disabled={busy || !(state.sunshine && state.sunshine.running)}
-              onClick={() => sunshineControl("sunshine_restart", "Restarting")}
-            >
-              <RestartIcon />
-            </IconButton>
-            <IconButton
-              disabled={busy || !(state.sunshine && state.sunshine.installed)}
-              onClick={() =>
-                state.sunshine && state.sunshine.running
-                  ? sunshineControl("sunshine_stop", "Stopping")
-                  : sunshineControl("sunshine_start", "Starting")
-              }
-            >
-              {state.sunshine && state.sunshine.running ? (
-                <StopIcon />
-              ) : (
-                <PlayIcon />
-              )}
-            </IconButton>
-          </Focusable>
+          <SectionHeader title="Favorites" open={favOpen} onToggle={() => setFavOpen(!favOpen)} />
         </PanelSectionRow>
+        {!favOpen ? null : favorites.length ? (
+          favorites.map((f) => {
+            const isActive = f.kind === "mode" && f.id === state.activeMode;
+            const hasStatus = typeof f.status === "boolean";
+            return (
+              <PanelSectionRow key={"f_" + f.kind + "_" + f.id}>
+                <ButtonItem
+                  layout="below"
+                  disabled={busy || f.missing}
+                  description={
+                    hasStatus
+                      ? "Action · " + (f.status ? "on" : "off")
+                      : f.kind === "mode"
+                        ? isActive ? "Mode · active" : "Mode"
+                        : "Action"
+                  }
+                  onClick={() =>
+                    f.kind === "mode"
+                      ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
+                      : doCall("run_action", { action_id: f.id }, "Running " + f.name)
+                  }
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    {hasStatus ? <StatusDot on={!!f.status} /> : null}
+                    <span>
+                      {(hasStatus ? "" : isActive ? "✓ " : "★ ") +
+                        (f.kind === "mode" ? "" : (f.verb ? f.verb : "Run") + ": ") +
+                        f.name +
+                        (f.missing ? " (missing)" : "")}
+                    </span>
+                  </span>
+                </ButtonItem>
+              </PanelSectionRow>
+            );
+          })
+        ) : (
+          <PanelSectionRow>
+            <div style={{ opacity: 0.7, padding: "0 4px" }}>
+              No favorites yet. Open Settings (gear) → Favorites to pin actions
+              and modes here.
+            </div>
+          </PanelSectionRow>
+        )}
+      </PanelSection>
+
+      <PanelSection>
         <PanelSectionRow>
-          <ToggleField
-            label="Fix stretched image when docked"
-            description="Forces gamescope composition; re-applied automatically after reboots."
-            checked={!!(state.sunshine && state.sunshine.forceComposition)}
-            disabled={busy}
-            onChange={(v: boolean) =>
-              fanTdpCall("set_force_composition", { enabled: v }, "Updating composition")
-            }
-          />
+          <SectionHeader title="Sunshine" open={sunshineOpen} onToggle={() => setSunshineOpen(!sunshineOpen)} />
         </PanelSectionRow>
-        <PanelSectionRow>
-          <ToggleField
-            label="HDR (Game Mode)"
-            description="Enables HDR output; re-applied automatically after reboots. Display and content must support HDR."
-            checked={!!(state.sunshine && state.sunshine.forceHdr)}
-            disabled={busy}
-            onChange={(v: boolean) =>
-              fanTdpCall("set_force_hdr", { enabled: v }, "Updating HDR")
-            }
-          />
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <ToggleField
-            label="Keep Sunshine running"
-            description="Relaunch Sunshine automatically if it crashes."
-            checked={!(state.sunshine && state.sunshine.watchdog === false)}
-            disabled={busy}
-            onChange={(v: boolean) =>
-              fanTdpCall("set_sunshine_watchdog", { enabled: v }, "Updating watchdog")
-            }
-          />
-        </PanelSectionRow>
+        {!sunshineOpen ? null : (
+          <>
+            <PanelSectionRow>
+              <Focusable
+                flow-children="horizontal"
+                style={{ display: "flex", gap: "8px" }}
+              >
+                <IconButton
+                  label="Pair"
+                  flex={2}
+                  disabled={busy || !(state.sunshine && state.sunshine.running)}
+                  onClick={() =>
+                    showModal(
+                      <PairModal
+                        credsStored={
+                          !!(state.sunshine && state.sunshine.credsStored)
+                        }
+                        onState={(st) => st && setState(st)}
+                      />
+                    )
+                  }
+                >
+                  <DockIcon />
+                </IconButton>
+                <IconButton
+                  disabled={busy || !(state.sunshine && state.sunshine.running)}
+                  onClick={() => sunshineControl("sunshine_restart", "Restarting")}
+                >
+                  <RestartIcon />
+                </IconButton>
+                <IconButton
+                  disabled={busy || !(state.sunshine && state.sunshine.installed)}
+                  onClick={() =>
+                    state.sunshine && state.sunshine.running
+                      ? sunshineControl("sunshine_stop", "Stopping")
+                      : sunshineControl("sunshine_start", "Starting")
+                  }
+                >
+                  {state.sunshine && state.sunshine.running ? (
+                    <StopIcon />
+                  ) : (
+                    <PlayIcon />
+                  )}
+                </IconButton>
+              </Focusable>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ToggleField
+                label="Fix stretched image when docked"
+                description="Forces gamescope composition; re-applied automatically after reboots."
+                checked={!!(state.sunshine && state.sunshine.forceComposition)}
+                disabled={busy}
+                onChange={(v: boolean) =>
+                  fanTdpCall("set_force_composition", { enabled: v }, "Updating composition")
+                }
+              />
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ToggleField
+                label="HDR (Game Mode)"
+                description="Enables HDR output; re-applied automatically after reboots. Display and content must support HDR."
+                checked={!!(state.sunshine && state.sunshine.forceHdr)}
+                disabled={busy}
+                onChange={(v: boolean) =>
+                  fanTdpCall("set_force_hdr", { enabled: v }, "Updating HDR")
+                }
+              />
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ToggleField
+                label="Keep Sunshine running"
+                description="Relaunch Sunshine automatically if it crashes."
+                checked={!(state.sunshine && state.sunshine.watchdog === false)}
+                disabled={busy}
+                onChange={(v: boolean) =>
+                  fanTdpCall("set_sunshine_watchdog", { enabled: v }, "Updating watchdog")
+                }
+              />
+            </PanelSectionRow>
+          </>
+        )}
       </PanelSection>
 
       <PanelSection>
@@ -614,55 +671,6 @@ const Content: VFC = () => {
               </ButtonItem>
             </PanelSectionRow>
           </>
-        )}
-      </PanelSection>
-
-      <PanelSection>
-        <PanelSectionRow>
-          <SectionHeader title="Favorites" open={favOpen} onToggle={() => setFavOpen(!favOpen)} />
-        </PanelSectionRow>
-        {!favOpen ? null : favorites.length ? (
-          favorites.map((f) => {
-            const isActive = f.kind === "mode" && f.id === state.activeMode;
-            const hasStatus = typeof f.status === "boolean";
-            return (
-              <PanelSectionRow key={"f_" + f.kind + "_" + f.id}>
-                <ButtonItem
-                  layout="below"
-                  disabled={busy || f.missing}
-                  description={
-                    hasStatus
-                      ? "Action · " + (f.status ? "on" : "off")
-                      : f.kind === "mode"
-                        ? isActive ? "Mode · active" : "Mode"
-                        : "Action"
-                  }
-                  onClick={() =>
-                    f.kind === "mode"
-                      ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
-                      : doCall("run_action", { action_id: f.id }, "Running " + f.name)
-                  }
-                >
-                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    {hasStatus ? <StatusDot on={!!f.status} /> : null}
-                    <span>
-                      {(hasStatus ? "" : isActive ? "✓ " : "★ ") +
-                        (f.kind === "mode" ? "" : (f.verb ? f.verb : "Run") + ": ") +
-                        f.name +
-                        (f.missing ? " (missing)" : "")}
-                    </span>
-                  </span>
-                </ButtonItem>
-              </PanelSectionRow>
-            );
-          })
-        ) : (
-          <PanelSectionRow>
-            <div style={{ opacity: 0.7, padding: "0 4px" }}>
-              No favorites yet. Open Settings (gear) → Favorites to pin actions
-              and modes here.
-            </div>
-          </PanelSectionRow>
         )}
       </PanelSection>
 

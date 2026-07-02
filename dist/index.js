@@ -1489,6 +1489,7 @@
         const [triggersOpen, setTriggersOpen] = react.useState(false);
         const [fanOpen, setFanOpen] = react.useState(false);
         const [tdpOpen, setTdpOpen] = react.useState(false);
+        const [sunshineOpen, setSunshineOpen] = react.useState(false);
         // Local draft for the TDP manual slider (committed on "Apply").
         const [tdpDraft, setTdpDraft] = react.useState(null);
         function refresh() {
@@ -1667,22 +1668,47 @@
                             window.SP_REACT.createElement(SettingsIcon, null)))),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, description: "Fan \u2192 auto and TDP cap lifted; SteamOS/BIOS defaults take over", onClick: releaseControl }, "\u23CF Hand control back to SteamOS"))),
-            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Sunshine" },
+            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px" } },
-                        window.SP_REACT.createElement(IconButton, { label: "Pair", flex: 2, disabled: busy || !(state.sunshine && state.sunshine.running), onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(PairModal, { credsStored: !!(state.sunshine && state.sunshine.credsStored), onState: (st) => st && setState(st) })) },
-                            window.SP_REACT.createElement(DockIcon, null)),
-                        window.SP_REACT.createElement(IconButton, { disabled: busy || !(state.sunshine && state.sunshine.running), onClick: () => sunshineControl("sunshine_restart", "Restarting") },
-                            window.SP_REACT.createElement(RestartIcon, null)),
-                        window.SP_REACT.createElement(IconButton, { disabled: busy || !(state.sunshine && state.sunshine.installed), onClick: () => state.sunshine && state.sunshine.running
-                                ? sunshineControl("sunshine_stop", "Stopping")
-                                : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null))))),
+                    window.SP_REACT.createElement(SectionHeader, { title: "Favorites", open: favOpen, onToggle: () => setFavOpen(!favOpen) })),
+                !favOpen ? null : favorites.length ? (favorites.map((f) => {
+                    const isActive = f.kind === "mode" && f.id === state.activeMode;
+                    const hasStatus = typeof f.status === "boolean";
+                    return (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "f_" + f.kind + "_" + f.id },
+                        window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy || f.missing, description: hasStatus
+                                ? "Action · " + (f.status ? "on" : "off")
+                                : f.kind === "mode"
+                                    ? isActive ? "Mode · active" : "Mode"
+                                    : "Action", onClick: () => f.kind === "mode"
+                                ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
+                                : doCall("run_action", { action_id: f.id }, "Running " + f.name) },
+                            window.SP_REACT.createElement("span", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+                                hasStatus ? window.SP_REACT.createElement(StatusDot, { on: !!f.status }) : null,
+                                window.SP_REACT.createElement("span", null, (hasStatus ? "" : isActive ? "✓ " : "★ ") +
+                                    (f.kind === "mode" ? "" : (f.verb ? f.verb : "Run") + ": ") +
+                                    f.name +
+                                    (f.missing ? " (missing)" : ""))))));
+                })) : (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement("div", { style: { opacity: 0.7, padding: "0 4px" } }, "No favorites yet. Open Settings (gear) \u2192 Favorites to pin actions and modes here.")))),
+            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Fix stretched image when docked", description: "Forces gamescope composition; re-applied automatically after reboots.", checked: !!(state.sunshine && state.sunshine.forceComposition), disabled: busy, onChange: (v) => fanTdpCall("set_force_composition", { enabled: v }, "Updating composition") })),
-                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "HDR (Game Mode)", description: "Enables HDR output; re-applied automatically after reboots. Display and content must support HDR.", checked: !!(state.sunshine && state.sunshine.forceHdr), disabled: busy, onChange: (v) => fanTdpCall("set_force_hdr", { enabled: v }, "Updating HDR") })),
-                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Keep Sunshine running", description: "Relaunch Sunshine automatically if it crashes.", checked: !(state.sunshine && state.sunshine.watchdog === false), disabled: busy, onChange: (v) => fanTdpCall("set_sunshine_watchdog", { enabled: v }, "Updating watchdog") }))),
+                    window.SP_REACT.createElement(SectionHeader, { title: "Sunshine", open: sunshineOpen, onToggle: () => setSunshineOpen(!sunshineOpen) })),
+                !sunshineOpen ? null : (window.SP_REACT.createElement(window.SP_REACT.Fragment, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px" } },
+                            window.SP_REACT.createElement(IconButton, { label: "Pair", flex: 2, disabled: busy || !(state.sunshine && state.sunshine.running), onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(PairModal, { credsStored: !!(state.sunshine && state.sunshine.credsStored), onState: (st) => st && setState(st) })) },
+                                window.SP_REACT.createElement(DockIcon, null)),
+                            window.SP_REACT.createElement(IconButton, { disabled: busy || !(state.sunshine && state.sunshine.running), onClick: () => sunshineControl("sunshine_restart", "Restarting") },
+                                window.SP_REACT.createElement(RestartIcon, null)),
+                            window.SP_REACT.createElement(IconButton, { disabled: busy || !(state.sunshine && state.sunshine.installed), onClick: () => state.sunshine && state.sunshine.running
+                                    ? sunshineControl("sunshine_stop", "Stopping")
+                                    : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null))))),
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Fix stretched image when docked", description: "Forces gamescope composition; re-applied automatically after reboots.", checked: !!(state.sunshine && state.sunshine.forceComposition), disabled: busy, onChange: (v) => fanTdpCall("set_force_composition", { enabled: v }, "Updating composition") })),
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "HDR (Game Mode)", description: "Enables HDR output; re-applied automatically after reboots. Display and content must support HDR.", checked: !!(state.sunshine && state.sunshine.forceHdr), disabled: busy, onChange: (v) => fanTdpCall("set_force_hdr", { enabled: v }, "Updating HDR") })),
+                    window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Keep Sunshine running", description: "Relaunch Sunshine automatically if it crashes.", checked: !(state.sunshine && state.sunshine.watchdog === false), disabled: busy, onChange: (v) => fanTdpCall("set_sunshine_watchdog", { enabled: v }, "Updating watchdog") }))))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(SectionHeader, { title: "Fan", open: fanOpen, onToggle: () => setFanOpen(!fanOpen) })),
@@ -1739,28 +1765,6 @@
                         window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Keep enforced", description: "Re-apply continuously so Steam's TDP slider can't override it", checked: !!state.tdp?.enforce, disabled: busy, onChange: (v) => fanTdpCall("set_tdp_enforce", { on: v }, "TDP enforce " + (v ? "on" : "off")) })),
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                         window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => openEditor("tdp") }, "Manage TDP profiles\u2026"))))),
-            window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
-                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(SectionHeader, { title: "Favorites", open: favOpen, onToggle: () => setFavOpen(!favOpen) })),
-                !favOpen ? null : favorites.length ? (favorites.map((f) => {
-                    const isActive = f.kind === "mode" && f.id === state.activeMode;
-                    const hasStatus = typeof f.status === "boolean";
-                    return (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, { key: "f_" + f.kind + "_" + f.id },
-                        window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy || f.missing, description: hasStatus
-                                ? "Action · " + (f.status ? "on" : "off")
-                                : f.kind === "mode"
-                                    ? isActive ? "Mode · active" : "Mode"
-                                    : "Action", onClick: () => f.kind === "mode"
-                                ? doCall("activate_mode", { mode_id: f.id }, "Switching to " + f.name)
-                                : doCall("run_action", { action_id: f.id }, "Running " + f.name) },
-                            window.SP_REACT.createElement("span", { style: { display: "flex", alignItems: "center", gap: "8px" } },
-                                hasStatus ? window.SP_REACT.createElement(StatusDot, { on: !!f.status }) : null,
-                                window.SP_REACT.createElement("span", null, (hasStatus ? "" : isActive ? "✓ " : "★ ") +
-                                    (f.kind === "mode" ? "" : (f.verb ? f.verb : "Run") + ": ") +
-                                    f.name +
-                                    (f.missing ? " (missing)" : ""))))));
-                })) : (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement("div", { style: { opacity: 0.7, padding: "0 4px" } }, "No favorites yet. Open Settings (gear) \u2192 Favorites to pin actions and modes here.")))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(SectionHeader, { title: "Triggers", open: triggersOpen, onToggle: () => setTriggersOpen(!triggersOpen) })),
