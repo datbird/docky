@@ -71,6 +71,19 @@
   binaries) and is handled — Docky strips them. If you still see it, make sure
   you're on the latest build (`sudo ./install.sh`).
 
+## Switching to Desktop Mode bounces back to Game Mode
+When Sunshine is running (the integrated engine autostarts it), its KMS screen
+capture holds the GPU's primary DRM node (`/dev/dri/card0`). Switching to Desktop
+then fails because KWin can't take over the GPU — the journal shows
+`kwin_wayland_drm: Failed to open /dev/dri/card0 device (Device or resource busy)`
+— so Plasma never starts and SteamOS drops you back to Game Mode. It's
+intermittent because Sunshine only grabs the node once capture initializes.
+- **Stop Sunshine before switching to Desktop** (panel → Sunshine → Stop). If it
+  keeps coming back, also turn off **Keep Sunshine running**, and **Start Sunshine
+  at boot** if you use Desktop Mode often.
+- Sunshine (Game-Mode streaming) and the KDE desktop compositor fundamentally
+  contend for the GPU, so they can't both own it at once.
+
 ## Reset to a clean slate
 - Config lives in `~/.config/docky/`. Remove `config.json` (and `state.json`) to
   start fresh; they're recreated empty on next load. Uninstalling the plugin does
