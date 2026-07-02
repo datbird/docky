@@ -23,7 +23,10 @@
   to re-apply the audio task.
 
 ## The docked stream looks stretched / blurry
-- Add a `sunshine_composition` task set to **On** to your docked mode.
+- Turn on **"Fix stretched image when docked"** in the Sunshine panel section
+  (or add a `sunshine_composition` task set to **On** to your docked mode). Once
+  enabled, Docky persists it and re-applies it automatically across reboots and
+  resume — you don't need to re-toggle it each boot.
 - Remember `off` is permissive (not "force scanout"), so toggling off won't
   always reproduce the stretch — see [Sunshine → Composition](sunshine.md#composition-the-docked-stretch-fix).
 - The fix is gamescope-version-sensitive; it's the standard workaround but not
@@ -36,7 +39,9 @@
 
 ## Settings reset after the Deck sleeps
 - Map the **Resume** trigger to a Mode that re-applies the affected tasks
-  (composition, audio, etc.). This is exactly what Resume is for.
+  (audio output, controller binding, etc.). This is exactly what Resume is for.
+- Composition and HDR are the exception — Docky already self-heals those atoms
+  after resume, so you don't need a Resume Mode just for them.
 
 ## Can't connect to Sunshine / "Pair" is greyed out
 - **Pair** is enabled only while Sunshine is **running**. Start it from the

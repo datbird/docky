@@ -203,15 +203,42 @@ async def _autostart_sunshine():
 async def _startup_composition():
     # Re-apply the saved force-composition AND force-HDR preferences on load
     # (boot): both gamescope atoms are runtime-only and reset every reboot.
+    # Setting them needs gamescope's XWayland :0, which may not be up yet when
+    # the plugin loads — so retry until the atoms actually reflect the settings
+    # (or we're not in Game Mode yet) instead of a one-shot that can lose the
+    # boot race and silently leave the docked image stretched. The periodic
+    # _atoms_watch keeps them healed afterwards (resume, dock changes).
     # Module-level — Decky's class wrapping breaks self.method().
-    try:
-        await asyncio.to_thread(docky.apply_persisted_composition)
-    except Exception:  # noqa: BLE001
-        decky.logger.exception("startup composition failed")
-    try:
-        await asyncio.to_thread(docky.apply_persisted_hdr)
-    except Exception:  # noqa: BLE001
-        decky.logger.exception("startup HDR failed")
+    for _ in range(30):  # ~60s worst case, then hand off to _atoms_watch
+        try:
+            res = await asyncio.to_thread(docky.ensure_gamescope_atoms)
+        except Exception:  # noqa: BLE001
+            decky.logger.exception("startup composition/HDR apply failed")
+            res = None
+        if res is True:
+            return  # everything desired is confirmed applied
+        await asyncio.sleep(2)
+
+
+async def _atoms_watch():
+    # Keep the runtime gamescope atoms (force-composition, force-HDR) matching
+    # the saved preferences for the whole session, not just at boot. They reset
+    # on resume-from-sleep and can be dropped by display/mode changes, and a
+    # boot race can make the initial apply fail — reassert within seconds so the
+    # docked-stretch fix and HDR survive. Cheap (reads before writing, no-ops
+    # outside Game Mode). Module-level — Decky's class wrapping breaks self.*.
+    while True:
+        await asyncio.sleep(15)
+        try:
+            res = await asyncio.to_thread(docky.ensure_gamescope_atoms)
+            if res is False:
+                decky.logger.warning(
+                    "atoms watchdog: gamescope :0 not ready / atom didn't take")
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            decky.logger.exception("atoms watchdog error")
+            await asyncio.sleep(30)
 
 
 async def _sunshine_watch():
@@ -303,6 +330,7 @@ class Plugin:
     _sunshine_watch_task = None
     _mdns_task = None
     _gpu_task = None
+    _atoms_task = None
 
     # ---- frontend-callable ----
 
@@ -551,12 +579,14 @@ class Plugin:
         self._sunshine_watch_task = asyncio.create_task(_sunshine_watch())
         self._mdns_task = asyncio.create_task(_mdns_watch())
         self._gpu_task = asyncio.create_task(_gpu_coexist_watch())
+        self._atoms_task = asyncio.create_task(_atoms_watch())
         decky.logger.info("Docky loaded; config=%s", docky.CONFIG_PATH)
 
     async def _unload(self):
         for task in (self._watch_task, self._autostart_task, self._startup_task,
                      self._fan_task, self._tdp_task, self._composition_task,
-                     self._sunshine_watch_task, self._mdns_task, self._gpu_task):
+                     self._sunshine_watch_task, self._mdns_task, self._gpu_task,
+                     self._atoms_task):
             if task:
                 task.cancel()
         decky.logger.info("Docky unloaded")

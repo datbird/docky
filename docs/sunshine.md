@@ -85,8 +85,14 @@ is compositing (an open overlay, the QAM, etc.). The composition fix is also
 gamescope-version-sensitive; it's the standard workaround but not guaranteed on
 every build.
 
-A common pairing: map the **Resume** trigger to a Mode that re-applies composition
-+ audio, so a docked stream self-heals after the Deck sleeps.
+The **"Fix stretched image when docked"** panel toggle persists this as a
+preference. Because `GAMESCOPE_COMPOSITE_FORCE` is runtime-only (it resets every
+reboot and on resume-from-sleep), Docky re-applies the preference automatically:
+it retries at boot until gamescope's display is actually ready — so a boot race
+can't silently leave the image stretched — and a lightweight watchdog reasserts
+it for the whole session, so it also self-heals after sleep and display changes.
+You therefore don't need a Resume-trigger Mode just to re-apply composition;
+mapping Resume is still useful for *other* tasks (e.g. re-selecting audio output).
 
 ## HDR (Game Mode)
 
@@ -98,8 +104,9 @@ gamescope's HDR output on or off:
 - `toggle` — flip the current value
 
 The toggle reflects the **live** HDR state, and because the underlying gamescope
-HDR atom is runtime-only (it resets every reboot), Docky remembers the preference
-and re-applies it on boot and on each Sunshine start — just like composition.
+HDR atom is runtime-only (it resets every reboot and on resume), Docky remembers
+the preference and self-heals it — retrying at boot until the display is ready
+and reasserting it every session via the same watchdog as composition.
 
 HDR only *does* anything when the whole chain is HDR-ready: an HDR-capable display
 (docked), **Steam → Settings → Display → HDR** enabled, and, for a stream, an

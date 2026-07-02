@@ -3,6 +3,19 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.1] — 2026-07-02
+
+### Fixed
+- **Force-composition / force-HDR now survive reboots reliably.** Both are
+  runtime-only gamescope atoms that reset every boot, and setting them needs
+  gamescope's XWayland `:0`, which isn't always up yet when the plugin loads —
+  so the one-shot boot apply could lose that race and silently leave a docked
+  image stretched even though the setting was remembered. Docky now retries the
+  boot apply until the atoms actually take, and a lightweight watchdog reasserts
+  them for the whole session, so the fix also self-heals after resume-from-sleep
+  and display/mode changes. It reads before writing (no-op when already correct)
+  and never touches atoms outside Game Mode.
+
 ## [1.4.0] — 2026-07-02
 
 ### Added

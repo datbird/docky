@@ -979,6 +979,42 @@ def set_force_hdr(enabled):
     return {"ok": ok, "message": msg, "forceHdr": enabled}
 
 
+def ensure_gamescope_atoms():
+    """Self-heal the runtime gamescope atoms (force-composition, force-HDR) to
+    match the persisted preferences.
+
+    These atoms are runtime-only: they reset to 0 on every reboot (and on
+    resume-from-sleep), and setting them needs gamescope's XWayland ``:0``,
+    which may not be up yet when the plugin loads on a fresh boot. The one-shot
+    boot apply can therefore lose that race and fail silently, leaving a docked
+    image stretched even though the setting is remembered — hence the periodic
+    heal. Cheap: reads each atom first and only writes when it's actually out of
+    sync. No-ops outside Game Mode (Desktop has no gamescope ``:0`` and the
+    docked-stretch fix is meaningless there).
+
+    Returns ``None`` when not applicable (not in Game Mode), ``True`` when every
+    desired-on atom is confirmed set (nothing left to heal), or ``False`` when
+    something is still out of sync (e.g. ``:0`` not ready yet) so a caller can
+    keep retrying.
+    """
+    if not in_game_mode():
+        return None
+    settings = (load_config().get("settings") or {})
+    in_sync = True
+    for want, getter, setter, label in (
+        (bool(settings.get("forceComposition")),
+         sunshine.get_composition, sunshine.set_composition, "composition"),
+        (bool(settings.get("forceHdr")),
+         sunshine.get_hdr, sunshine.set_hdr, "HDR"),
+    ):
+        if not want or getter():
+            continue  # setting off (atom naturally 0), or already applied
+        set_ok, _ = setter(True)
+        if not (set_ok and getter()):
+            in_sync = False  # couldn't set / didn't take — :0 likely not ready
+    return in_sync
+
+
 def set_sunshine_watchdog(enabled):
     """Persist whether the watchdog should keep an integrated Sunshine alive."""
     enabled = bool(enabled)

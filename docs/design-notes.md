@@ -130,8 +130,14 @@ so it can't thrash.
 
 ### Composition/HDR gamescope atoms are runtime-only, so the preference is persisted
 `GAMESCOPE_COMPOSITE_FORCE` and `GAMESCOPE_DISPLAY_HDR_ENABLED` are runtime state
-that resets every reboot. Docky persists the *preference* (`forceComposition` /
-`forceHdr`) and re-applies it on boot and on each Sunshine start. The HDR toggle
+that resets every reboot (and on resume-from-sleep). Docky persists the
+*preference* (`forceComposition` / `forceHdr`) and self-heals the atoms to match.
+Setting an atom needs gamescope's XWayland `:0`, which isn't always up when the
+plugin loads — a one-shot boot apply could lose that race and silently leave a
+docked image stretched — so the boot apply *retries* until the atom takes, and a
+15 s watchdog (`_atoms_watch` → `ensure_gamescope_atoms`) reasserts it for the
+whole session. That read-before-write watchdog also covers resume and display
+changes; it no-ops outside Game Mode (Desktop has no gamescope `:0`). The HDR toggle
 reads the **live** atom, so it reflects reality even when Steam's own Display→HDR
 setting is what's driving (or not driving) it — a toggle that showed the persisted
 pref would lie when Steam HDR is off.
