@@ -16,7 +16,7 @@ Everything is built and edited in the Quick Access panel — no config files, no
 Desktop Mode required.
 
 <p align="center">
-  <img src="docs/images/panel.png" alt="Docky in the Steam Deck Quick Access menu — Favorites with a live status LED" width="300">
+  <img src="docs/images/panel.png" alt="Docky in the Steam Deck Quick Access menu — Favorites first, collapsible sections" width="300">
 </p>
 
 ```
@@ -81,6 +81,16 @@ Trigger— an event (dock/undock, AC, controller, resume, startup) → a Mode
     <td valign="top" align="center">
       <img src="docs/images/tdp.png" width="240"><br>
       <sub>TDP — manual watts, "keep enforced", profiles</sub>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top" align="center">
+      <img src="docs/images/sunshine-panel.png" width="240"><br>
+      <sub>Sunshine — start/pair, composition, HDR, keep-alive</sub>
+    </td>
+    <td valign="top" align="center">
+      <img src="docs/images/decky-menu.png" width="300"><br>
+      <sub>Docky in the Decky menu (Quick Access → Decky)</sub>
     </td>
   </tr>
 </table>
