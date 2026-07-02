@@ -72,17 +72,21 @@
   you're on the latest build (`sudo ./install.sh`).
 
 ## Switching to Desktop Mode bounces back to Game Mode
-When Sunshine is running (the integrated engine autostarts it), its KMS screen
-capture holds the GPU's primary DRM node (`/dev/dri/card0`). Switching to Desktop
-then fails because KWin can't take over the GPU — the journal shows
-`kwin_wayland_drm: Failed to open /dev/dri/card0 device (Device or resource busy)`
-— so Plasma never starts and SteamOS drops you back to Game Mode. It's
-intermittent because Sunshine only grabs the node once capture initializes.
-- **Stop Sunshine before switching to Desktop** (panel → Sunshine → Stop). If it
-  keeps coming back, also turn off **Keep Sunshine running**, and **Start Sunshine
-  at boot** if you use Desktop Mode often.
-- Sunshine (Game-Mode streaming) and the KDE desktop compositor fundamentally
-  contend for the GPU, so they can't both own it at once.
+Sunshine's KMS screen capture holds the GPU's primary DRM node (`/dev/dri/card0`),
+and the KDE desktop compositor (KWin) needs that same node. If Sunshine is still
+running when you switch to Desktop, KWin can't take over the GPU — the journal
+shows `kwin_wayland_drm: Failed to open /dev/dri/card0 device (Device or resource
+busy)` — so Plasma never starts and SteamOS drops you back to Game Mode.
+
+**Docky handles this automatically.** When it detects you've left Game Mode
+(gamescope is no longer the compositor) it releases the GPU by stopping Sunshine,
+and it restarts Sunshine when you return to Game Mode — so Desktop and Moonlight
+both just work. It never stops Sunshine mid-stream or while Game Mode is running.
+
+- If a switch ever still bounces (e.g. a very fast machine wins the race), just
+  try again, or stop Sunshine first from the panel (Sunshine → Stop).
+- Sunshine (Game-Mode streaming) and the KDE desktop fundamentally contend for the
+  GPU, so they can't both own it at once — only one runs at a time by design.
 
 ## Reset to a clean slate
 - Config lives in `~/.config/docky/`. Remove `config.json` (and `state.json`) to

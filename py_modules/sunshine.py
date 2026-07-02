@@ -330,6 +330,24 @@ def stop():
     return False, "Sunshine still running"
 
 
+def force_stop():
+    """SIGKILL Sunshine (and its bwrap wrapper) immediately, to release held
+    resources FAST — used when switching to Desktop, where Sunshine's KMS capture
+    holds /dev/dri/card0 and KWin needs it within a couple of seconds. Skips the
+    graceful flatpak-kill path. Returns (ok, message)."""
+    if not is_running():
+        return True, "Sunshine not running"
+    for args in (["-9", "-x", "sunshine"], ["-9", "-f", "docky-bwrap.*sunshine"]):
+        try:
+            subprocess.run(["pkill"] + args, timeout=5,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    if _wait(lambda: not is_running(), tries=12):
+        return True, "Sunshine killed"
+    return False, "Sunshine still running after kill"
+
+
 def restart():
     """Stop then start (e.g. to apply a config change). Returns (ok, message)."""
     ok, msg = stop()

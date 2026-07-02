@@ -880,6 +880,8 @@ def autostart_sunshine():
         return False, True, "autostart disabled"
     if not sunshine.is_installed():
         return False, True, "Sunshine not installed"
+    if not in_game_mode():
+        return False, True, "not in Game Mode; leaving Sunshine off so KDE Desktop can use the GPU"
     global _sunshine_user_stopped
     ok, msg = sunshine.start()
     if ok:
@@ -988,10 +990,64 @@ def set_sunshine_watchdog(enabled):
             "message": "watchdog " + ("on" if enabled else "off")}
 
 
+# --- Sunshine ⇄ KDE Desktop GPU coexistence --------------------------------
+# Sunshine's KMS capture holds the GPU's primary DRM node (/dev/dri/card0), which
+# blocks KWin from taking DRM master when you switch to Desktop Mode — the desktop
+# then bounces straight back to Game Mode. So Docky runs Sunshine ONLY in Game Mode
+# and releases the GPU the instant a Plasma session starts launching, so Moonlight
+# (Game Mode) and Desktop RDP both just work without the user juggling Sunshine.
+
+def _proc_x(name):
+    """True if a process whose exact comm is `name` is running."""
+    try:
+        return subprocess.run(["pgrep", "-x", name], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, env=_clean_env(),
+                              timeout=5).returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def in_game_mode():
+    """Game Mode = the gamescope compositor is up. Its comm is 'gamescope-wl' on
+    current SteamOS (accept plain 'gamescope' too). `pgrep -x` matches the exact
+    comm and never matches Docky's own process, so this can't false-positive — which
+    matters because the whole coexistence logic keys off it."""
+    return _proc_x("gamescope-wl") or _proc_x("gamescope")
+
+
+def sunshine_coexist_tick():
+    """One tick of the Sunshine⇄Desktop GPU coexistence loop. The reliable signal is
+    `in_game_mode()`: whenever gamescope is NOT the active compositor, a Desktop
+    session is starting/up (or Game Mode is down), so release the GPU by stopping
+    Sunshine; in Game Mode, (re)start it. Keying off gamescope-gone — rather than
+    trying to *detect* Plasma — means we NEVER stop Sunshine while Game Mode is up
+    (which would break Moonlight), and we free the GPU the moment the switch begins,
+    before KWin reaches for DRM master. Never interrupts a live stream; the stop does
+    NOT set the user-stopped flag, so Sunshine auto-returns in Game Mode. Returns a
+    status string when it acted."""
+    if resolved_engine() != "integrated" or not sunshine.is_installed():
+        return None
+    if not in_game_mode():
+        # Desktop is (about to be) up — free the GPU for KWin.
+        if sunshine.is_running() and not sunshine.is_streaming():
+            # Fast SIGKILL: the GPU must free within a couple of seconds for KWin.
+            # Low-level, so it does NOT set the user-stopped flag.
+            ok, _ = sunshine.force_stop()
+            return "stopped Sunshine — not in Game Mode (freeing GPU for Desktop)" if ok else None
+        return None
+    # Game Mode: (re)start Sunshine if it should be running.
+    if sunshine_should_autorestart():
+        ok, _ = sunshine.start()
+        if ok:
+            apply_persisted_composition()
+        return "started Sunshine for Game Mode" if ok else None
+    return None
+
+
 def sunshine_should_autorestart():
-    """True when Docky should relaunch a crashed Sunshine: watchdog enabled,
-    engine integrated, installed, the user didn't stop it, and it isn't running.
-    """
+    """True when Docky should (re)launch Sunshine: watchdog enabled, engine
+    integrated, installed, the user didn't stop it, we're in Game Mode (Desktop
+    needs the GPU), and it isn't already running."""
     cfg = load_config()
     if not cfg["settings"].get("sunshineWatchdog"):
         return False
@@ -1000,6 +1056,8 @@ def sunshine_should_autorestart():
     if resolved_engine(cfg) != "integrated":
         return False
     if not sunshine.is_installed():
+        return False
+    if not in_game_mode():
         return False
     return not sunshine.is_running()
 

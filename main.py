@@ -273,6 +273,26 @@ async def _mdns_watch():
             await asyncio.sleep(30)
 
 
+async def _gpu_coexist_watch():
+    # Keep Sunshine and the KDE Desktop from fighting over the GPU. Sunshine's KMS
+    # capture holds /dev/dri/card0, which blocks KWin from taking DRM master when you
+    # switch to Desktop Mode — the desktop then bounces back to Game Mode. Poll fast
+    # (2s) so we release the GPU the instant a Plasma session starts launching (before
+    # KWin grabs it) and bring Sunshine back in Game Mode, so Moonlight and Desktop
+    # RDP both just work. Module-level — Decky's class wrapping breaks self.*.
+    while True:
+        await asyncio.sleep(2)
+        try:
+            msg = await asyncio.to_thread(docky.sunshine_coexist_tick)
+            if msg:
+                decky.logger.info("Sunshine/GPU coexistence: %s", msg)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            decky.logger.exception("GPU coexistence watch error")
+            await asyncio.sleep(5)
+
+
 class Plugin:
     _watch_task = None
     _autostart_task = None
@@ -282,6 +302,7 @@ class Plugin:
     _composition_task = None
     _sunshine_watch_task = None
     _mdns_task = None
+    _gpu_task = None
 
     # ---- frontend-callable ----
 
@@ -529,12 +550,13 @@ class Plugin:
         self._composition_task = asyncio.create_task(_startup_composition())
         self._sunshine_watch_task = asyncio.create_task(_sunshine_watch())
         self._mdns_task = asyncio.create_task(_mdns_watch())
+        self._gpu_task = asyncio.create_task(_gpu_coexist_watch())
         decky.logger.info("Docky loaded; config=%s", docky.CONFIG_PATH)
 
     async def _unload(self):
         for task in (self._watch_task, self._autostart_task, self._startup_task,
                      self._fan_task, self._tdp_task, self._composition_task,
-                     self._sunshine_watch_task, self._mdns_task):
+                     self._sunshine_watch_task, self._mdns_task, self._gpu_task):
             if task:
                 task.cancel()
         decky.logger.info("Docky unloaded")

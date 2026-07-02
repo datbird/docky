@@ -3,6 +3,18 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] — 2026-07-02
+
+### Added
+- **Sunshine ⇄ Desktop GPU coexistence.** Sunshine's KMS capture holds the GPU's
+  primary DRM node, which blocked KWin from starting when you switched to Desktop
+  Mode (the desktop would bounce straight back to Game Mode). Docky now releases
+  the GPU automatically — it stops Sunshine the moment you leave Game Mode and
+  restarts it when you return — so Moonlight streaming and Desktop (e.g. RDP) both
+  work without manually juggling Sunshine. It never interrupts a live stream, and
+  never stops Sunshine while Game Mode is running. Sunshine's autostart and
+  watchdog are now Game-Mode-aware.
+
 ## [1.3.0] — 2026-07-02
 
 ### Added
