@@ -70,6 +70,9 @@ rather than silently discarding it.
 | `startupMode` | `""` | mode to run when Docky loads |
 | `sunshineEngine` | `"auto"` | `auto` / `integrated` / `decky-sunshine` / `off` |
 | `autostartSunshine` | `true` | (integrated) launch Sunshine when Docky loads |
+| `sunshineWatchdog` | `true` | (integrated) relaunch Sunshine automatically if it crashes |
+| `forceComposition` | `false` | force gamescope composition (docked stretch fix); re-applied on boot & each Sunshine start |
+| `forceHdr` | `false` | enable Game-Mode HDR; re-applied on boot & each Sunshine start |
 | `fanMode` | `"auto"` | active fan mode: `auto` / `manual` / `curve` |
 | `fanManualRpm` | `3000` | held RPM when `fanMode` = `manual` |
 | `fanCurve` | starter curve | active curve `{ interpolate, points: [{temp,rpm}] }` |

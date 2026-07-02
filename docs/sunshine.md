@@ -87,3 +87,47 @@ every build.
 
 A common pairing: map the **Resume** trigger to a Mode that re-applies composition
 + audio, so a docked stream self-heals after the Deck sleeps.
+
+## HDR (Game Mode)
+
+The **HDR (Game Mode)** panel toggle (and the `sunshine_hdr` task) turns
+gamescope's HDR output on or off:
+
+- `on` — enable HDR output
+- `off` — disable it
+- `toggle` — flip the current value
+
+The toggle reflects the **live** HDR state, and because the underlying gamescope
+HDR atom is runtime-only (it resets every reboot), Docky remembers the preference
+and re-applies it on boot and on each Sunshine start — just like composition.
+
+HDR only *does* anything when the whole chain is HDR-ready: an HDR-capable display
+(docked), **Steam → Settings → Display → HDR** enabled, and, for a stream, an
+HDR-capable Moonlight client with HDR + the **HEVC** codec selected. If Steam's
+own HDR setting is off, gamescope isn't emitting HDR and the toggle correctly
+shows **off** — it's reporting reality, not out of sync.
+
+## Staying up and discoverable
+
+Two things keep a Docky-owned (Integrated) Sunshine reachable without you having
+to babysit it:
+
+- **Watchdog** — the **Keep Sunshine running** toggle (on by default) relaunches
+  Sunshine automatically if it crashes, so a streaming host failure recovers on
+  its own. It honors an explicit **Stop** from the panel and backs off after
+  repeated failures.
+- **Self-healing discovery (mDNS)** — Moonlight finds the Deck by browsing for
+  Sunshine's `_nvstream` mDNS record and by resolving `<host>.local`, both served
+  by avahi. SteamOS ships avahi installed but with **publishing disabled**, and
+  Sunshine only registers its record once at startup — so on a fresh boot (where
+  Sunshine can start before avahi is ready) or after avahi restarts (a system
+  update, a DHCP/network change) the record silently vanishes and Moonlight shows
+  the Deck as **offline** even though Sunshine is fine. Docky handles this
+  automatically: it enables avahi publishing, verifies after startup that the
+  record actually landed, and runs a lightweight watchdog that re-registers within
+  seconds if it ever disappears. It never interrupts a live stream. No setting —
+  it just works.
+
+  > If Moonlight still can't find the Deck, add it by **IP** as a fallback
+  > (pairing survives, so you won't need to re-pair) — but this should be rare now
+  > that discovery self-heals.

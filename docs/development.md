@@ -3,11 +3,13 @@
 ## Layout
 
 ```
-main.py                 Decky Plugin class + asyncio trigger watcher + load hooks
+main.py                 Decky Plugin class + asyncio background watchers (triggers,
+                        fan, TDP, Sunshine, mDNS) + load hooks
 py_modules/
   docky.py              engine: config/state, run_task, action/mode runners,
                         triggers, favorites, sunshine-engine wrappers (no decky deps)
-  sunshine.py           Sunshine flatpak control (install/launch/encoder/compose/pair)
+  sunshine.py           Sunshine flatpak control (install/launch/encoder/compose/hdr/pair)
+  mdns.py               avahi/mDNS discovery healing (keeps _nvstream advertised)
   deckops.py            built-in dock fixes (audio, controller, TDP, flatpak, detect)
   padswap.py            PCSX2 input-profile logic + dock signals
   sysenv.py             shared clean_env() (strips Decky's PyInstaller LD_LIBRARY_PATH)

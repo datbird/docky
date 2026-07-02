@@ -112,8 +112,29 @@ right tool and keeps the config hand-editable.
 
 ### Background coroutines are module-level functions, not `Plugin` methods
 Decky's class wrapping breaks `self.method()` calls from inside the backend, so
-the watchers (`_trigger_watch`, `_fan_watch`, `_tdp_watch`, autostart) are
-module-level.
+the watchers (`_trigger_watch`, `_fan_watch`, `_tdp_watch`, `_sunshine_watch`,
+`_mdns_watch`, autostart) are module-level.
+
+### Sunshine discovery is healed by re-registering, never mid-stream
+Moonlight discovery needs Sunshine's `_nvstream` mDNS record on the wire, but
+Sunshine registers it **only once, at startup** — so a boot race (Sunshine up
+before avahi) or a later avahi restart (system update, DHCP change) drops it with
+no error. Docky checks the observable end state (is the record actually
+advertised?) and, if not, **re-registers by restarting Sunshine** — the only way
+to make Sunshine re-emit the record. **Why restart rather than poke avahi:** the
+record is Sunshine's to own; there's no API to ask a running Sunshine to
+re-advertise. The heal is guarded on `is_streaming()` so it never drops a live
+session, uses a short grace window so a just-started Sunshine that's about to
+publish isn't bounced needlessly, and the periodic watchdog backs off after a heal
+so it can't thrash.
+
+### Composition/HDR gamescope atoms are runtime-only, so the preference is persisted
+`GAMESCOPE_COMPOSITE_FORCE` and `GAMESCOPE_DISPLAY_HDR_ENABLED` are runtime state
+that resets every reboot. Docky persists the *preference* (`forceComposition` /
+`forceHdr`) and re-applies it on boot and on each Sunshine start. The HDR toggle
+reads the **live** atom, so it reflects reality even when Steam's own Display→HDR
+setting is what's driving (or not driving) it — a toggle that showed the persisted
+pref would lie when Steam HDR is off.
 
 ## Frontend
 

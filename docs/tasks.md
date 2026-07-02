@@ -56,6 +56,7 @@ See the [Sunshine guide](sunshine.md) for the full picture.
 |---|---|
 | `sunshine_start` / `sunshine_stop` / `sunshine_restart` | control the Sunshine process |
 | `sunshine_composition` | force gamescope composition — `mode`: `on`/`off`/`toggle` (the docked stretch fix) |
+| `sunshine_hdr` | toggle Game-Mode HDR — `mode`: `on`/`off`/`toggle` |
 | `sunshine_encoder` | set the video encoder — `encoder`: ``(auto)/`vaapi`/`vulkan`/`software` |
 
 ## Performance

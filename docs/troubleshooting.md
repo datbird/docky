@@ -46,6 +46,26 @@
 - If you use `decky-sunshine`, set the engine to **Auto** (or decky-sunshine) so
   Docky doesn't fight it over the port.
 
+## Moonlight shows the Deck as "offline" / can't find it
+- This is a **discovery** (mDNS) problem, not a Sunshine one — Sunshine is
+  usually running fine; Moonlight just can't see its `_nvstream` record. Docky now
+  **self-heals** this: it enables avahi publishing, re-checks after boot that the
+  record landed, and re-registers within seconds if avahi ever drops it. Give it a
+  few seconds after a reboot and it should appear on its own. See
+  [Sunshine → Staying up and discoverable](sunshine.md#staying-up-and-discoverable).
+- Fallback: add the Deck by **IP** in Moonlight. Pairing survives an IP change, so
+  you won't need to re-pair.
+- If it's *persistently* undiscoverable, confirm avahi is alive:
+  `systemctl status avahi-daemon` and `avahi-browse -rt _nvstream._tcp` (should
+  list the Deck while Sunshine runs).
+
+## HDR toggle shows "off" but my display supports HDR
+- The toggle reflects the **live** gamescope HDR state, and gamescope only emits
+  HDR when **Steam → Settings → Display → HDR** is on. If that's off, the toggle
+  correctly reads off. A display *supporting* HDR isn't the same as HDR being
+  active — turn on Steam's HDR setting (and, for a stream, enable HDR + HEVC in
+  Moonlight). See [Sunshine → HDR](sunshine.md#hdr-game-mode).
+
 ## A `bash`/`run` task fails with a library/symbol error
 - This was a known issue (Decky's bundled libraries leaking into shelled-out
   binaries) and is handled — Docky strips them. If you still see it, make sure

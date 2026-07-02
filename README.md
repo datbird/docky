@@ -43,8 +43,10 @@ Trigger— an event (dock/undock, AC, controller, resume, startup) → a Mode
 - **Favorites** — pin the actions/modes you use most to the panel; stateful ones
   (like force-composition) show a live on/off LED.
 - **Sunshine** — install/update from Flathub, start/stop/restart, set the
-  encoder, force composition, and pair/manage Moonlight clients — or defer to the
-  `decky-sunshine` plugin (auto-detected).
+  encoder, force composition, toggle Game-Mode **HDR**, and pair/manage Moonlight
+  clients — or defer to the `decky-sunshine` plugin (auto-detected). A **watchdog**
+  relaunches it if it crashes, and Docky keeps it **discoverable** (self-healing
+  mDNS) so Moonlight finds the Deck after a reboot instead of showing it offline.
 - **In-Game-Mode editor** — build Actions, Modes, Favorites, Triggers, and
   Sunshine settings from the gear menu; nothing persists until you Save.
 
@@ -119,7 +121,7 @@ Dock the Deck and the `Docked` mode runs automatically. Pin either mode as a
 | [Task reference](docs/tasks.md) | Every task type, its fields, and examples |
 | [Performance](docs/performance.md) | Fan curve/manual, TDP cap + enforcement, profiles |
 | [Triggers](docs/triggers.md) | All triggers, dock detection, mode mapping |
-| [Sunshine](docs/sunshine.md) | Engine selection, install/update, pairing, encoder, composition |
+| [Sunshine](docs/sunshine.md) | Engine selection, install/update, pairing, encoder, composition, HDR, watchdog & discovery |
 | [Configuration](docs/configuration.md) | `config.json` / `state.json` reference |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
 | [Design notes](docs/design-notes.md) | Accepted trade-offs & known limitations, with rationale |
