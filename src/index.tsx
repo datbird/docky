@@ -26,23 +26,26 @@ function DockIcon() {
   );
 }
 
-// The Docky brand mark (matches docs/images/icon.svg): a navy badge with a white
-// "dock" arch, a blue screen dot, and a blue dock cradle. Used as the plugin icon.
+// The Docky brand mark: a navy badge with a white "dock" arch, a blue screen dot,
+// and a blue dock cradle. Used as the plugin icon. Sized to fill the icon slot
+// (badge near full-bleed, mark enlarged) so it reads at the same scale as other
+// Decky plugin icons; the brighter badge + border keep it visible on the dark
+// panel background, where the old darker navy blended in.
 function DockyLogo() {
   return (
     <svg width="1em" height="1em" viewBox="0 0 32 32">
       <defs>
         <linearGradient id="dockyBg" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#222b39" />
-          <stop offset="1" stopColor="#171d27" />
+          <stop offset="0" stopColor="#2a3548" />
+          <stop offset="1" stopColor="#1a212d" />
         </linearGradient>
       </defs>
-      <rect x="2" y="2" width="28" height="28" rx="7.5" fill="url(#dockyBg)" />
-      <rect x="2.6" y="2.6" width="26.8" height="26.8" rx="7" fill="none" stroke="#3a4860" strokeWidth="0.9" />
-      <path d="M9.3 21.4 V11.5 Q9.3 7.3 13.7 7.3 H18.3 Q22.7 7.3 22.7 11.5 V21.4"
-            fill="none" stroke="#f1f4fa" strokeWidth="3.9" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="16" cy="16.1" r="2.8" fill="#5b7cf0" />
-      <path d="M6.6 19.7 Q16 23.3 25.4 19.7" fill="none" stroke="#5b7cf0" strokeWidth="2.9" strokeLinecap="round" />
+      <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#dockyBg)" />
+      <rect x="1.5" y="1.5" width="29" height="29" rx="7.5" fill="none" stroke="#4a5a78" strokeWidth="1" />
+      <path d="M8 24 V11 Q8 5.3 13.7 5.3 H18.3 Q24 5.3 24 11 V24"
+            fill="none" stroke="#f1f4fa" strokeWidth="4.4" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="16" cy="14.8" r="3.4" fill="#5b7cf0" />
+      <path d="M5.3 21.7 Q16 26.9 26.7 21.7" fill="none" stroke="#5b7cf0" strokeWidth="3.4" strokeLinecap="round" />
     </svg>
   );
 }
