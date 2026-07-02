@@ -103,6 +103,24 @@ export const TASK_DEFS: TaskTypeDef[] = [
       "Sunshine composition: " + (t.mode || (t.enabled ? "on" : "off")),
   },
   {
+    type: "sunshine_hdr",
+    label: "Display: HDR on/off (Game Mode)",
+    builtin: true,
+    fields: [
+      {
+        key: "mode",
+        kind: "select",
+        label: "Action",
+        options: [
+          { data: "on", label: "On" },
+          { data: "off", label: "Off" },
+          { data: "toggle", label: "Toggle" },
+        ],
+      },
+    ],
+    summary: (t) => "HDR: " + (t.mode || (t.enabled ? "on" : "off")),
+  },
+  {
     type: "sunshine_encoder",
     label: "Sunshine: set video encoder",
     builtin: true,

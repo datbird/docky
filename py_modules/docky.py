@@ -27,6 +27,7 @@ _log = logging.getLogger("docky")
 
 import padswap  # proven PCSX2 input-profile logic
 import sunshine  # Docky's own Sunshine flatpak control
+import mdns      # keep avahi publishing on so Moonlight can discover Sunshine
 import deckops   # built-in Steam Deck dock fixes (audio/controller/tdp/flatpak)
 from sysenv import clean_env as _clean_env  # strip Decky's PyInstaller LD_LIBRARY_PATH
 
@@ -72,6 +73,12 @@ def default_config():
             # and resets every boot, so Docky persists the preference here and
             # re-applies it on load and on each Sunshine (re)start.
             "forceComposition": False,
+            # Force HDR output in the Game-Mode gamescope session (its
+            # GAMESCOPE_DISPLAY_HDR_ENABLED atom). Like composition it's a
+            # runtime-only atom that resets every boot, so Docky persists the
+            # preference here and re-applies it on load. Display + content must
+            # support HDR for it to have visible effect.
+            "forceHdr": False,
             # Keep an integrated (Docky-owned) Sunshine alive: a background
             # watchdog relaunches it if it crashes (e.g. the known
             # session::video segfault). Honors an explicit Stop from the panel.
@@ -361,6 +368,10 @@ def run_task(task, allow_running_emu=True):
 
         elif t == "sunshine_composition":
             ok, msg = sunshine.apply_composition(_task_mode(task))
+            r.update(ok=ok, message=msg)
+
+        elif t == "sunshine_hdr":
+            ok, msg = sunshine.apply_hdr(_task_mode(task))
             r.update(ok=ok, message=msg)
 
         elif t == "sunshine_encoder":
@@ -712,6 +723,8 @@ def _task_bool_status(task):
     t = task.get("type")
     if t == "sunshine_composition":
         return sunshine.get_composition()
+    if t == "sunshine_hdr":
+        return sunshine.get_hdr()
     if t == "builtin_controller":
         return deckops.builtin_controller_enabled()
     return None
@@ -727,7 +740,7 @@ def _task_verb(task):
     """Verb describing what a stateful task does, for its button label
     ("On"/"Off"/"Toggle"), or None for non-stateful tasks."""
     t = task.get("type")
-    if t in ("sunshine_composition", "builtin_controller"):
+    if t in ("sunshine_composition", "sunshine_hdr", "builtin_controller"):
         return {"on": "On", "off": "Off", "toggle": "Toggle"}.get(_task_mode(task), "Toggle")
     return None
 
@@ -789,6 +802,7 @@ def get_state():
                          engine=sunshine_engine(cfg),
                          resolvedEngine=resolved_engine(cfg, plugins),
                          forceComposition=bool((cfg.get("settings") or {}).get("forceComposition")),
+                         forceHdr=bool((cfg.get("settings") or {}).get("forceHdr")),
                          watchdog=bool((cfg.get("settings") or {}).get("sunshineWatchdog"))),
         "fan": fan_status(cfg),
         "tdp": tdp_status(cfg),
@@ -944,6 +958,25 @@ def set_force_composition(enabled):
     return {"ok": ok, "message": msg, "forceComposition": enabled}
 
 
+def apply_persisted_hdr(cfg=None):
+    """Re-apply the saved force-HDR preference to gamescope's runtime atom
+    (which resets every boot). Returns (ok, message)."""
+    cfg = cfg or load_config()
+    enabled = bool((cfg.get("settings") or {}).get("forceHdr"))
+    return sunshine.set_hdr(enabled)
+
+
+def set_force_hdr(enabled):
+    """Persist the force-HDR preference and apply it live now."""
+    enabled = bool(enabled)
+    with _config_lock:
+        cfg = load_config()
+        cfg["settings"]["forceHdr"] = enabled
+        save_config(cfg)
+    ok, msg = sunshine.set_hdr(enabled)
+    return {"ok": ok, "message": msg, "forceHdr": enabled}
+
+
 def set_sunshine_watchdog(enabled):
     """Persist whether the watchdog should keep an integrated Sunshine alive."""
     enabled = bool(enabled)
@@ -977,6 +1010,79 @@ def sunshine_autorestart():
     if ok:
         apply_persisted_composition()
     return ok, msg
+
+
+def ensure_mdns():
+    """Keep Moonlight able to discover Sunshine. SteamOS ships avahi in
+    resolve-only mode and re-disables publishing on updates, which silently
+    kills discovery and the `<host>.local` fallback — the usual 'Sunshine keeps
+    breaking' after a reboot/DHCP change. Enable + start + publish avahi, and if
+    that changed anything while Sunshine is up but not yet advertising, restart
+    it so it re-registers _nvstream (never mid-stream). Returns a status dict."""
+    if resolved_engine() == "off":
+        return {"ok": True, "message": "Sunshine off; mDNS skipped", "changed": False}
+    ok, changed, msg = mdns.ensure()
+    if not ok:
+        return {"ok": False, "message": "mDNS: " + msg, "changed": changed}
+    reregistered = False
+    # Sunshine registers _nvstream only at startup; if avahi just came up or was
+    # reconfigured, a running Sunshine stays invisible until restarted. Guard on
+    # is_streaming() so we never drop a live session to fix discovery.
+    if changed and sunshine.is_running() and not sunshine.is_streaming() \
+            and not mdns.advertised():
+        reregistered, _ = sunshine.restart()
+        if reregistered:
+            apply_persisted_composition()
+    return {"ok": True, "message": "mDNS: " + msg,
+            "changed": changed, "reregistered": reregistered}
+
+
+def ensure_discoverable(settle_tries=4):
+    """Confirm Sunshine is *actually* discoverable and heal it if not.
+
+    ensure_mdns() only configures avahi and (re)registers when it changed
+    something. But Sunshine registers its _nvstream record exactly once, at
+    startup, and two things silently drop it with no config change and no error:
+      1. the boot race — Sunshine registers into an avahi that isn't fully up
+         yet (seen in logs: Sunshine binds ~1s before avahi goes active), so the
+         record never lands; and
+      2. avahi restarting later (a SteamOS update re-touching the daemon, a
+         DHCP/network change) wiping every registration out from under Sunshine.
+    In both cases avahi is healthy and Sunshine is running, yet Moonlight shows
+    "host offline". This checks the real end state — is _nvstream on the wire? —
+    and, if not, re-registers by restarting Sunshine. Never touches a live
+    stream. Idempotent and cheap when already healthy. Returns a status dict."""
+    if resolved_engine() == "off":
+        return {"ok": True, "healed": False, "message": "Sunshine off"}
+    if not sunshine.is_running():
+        return {"ok": True, "healed": False, "message": "Sunshine not running"}
+    # Make sure avahi itself is up/publishing before judging the record missing.
+    mdns.ensure()
+    # A just-started Sunshine can take a beat to publish; don't restart it out
+    # from under a record that's about to appear. advertised() blocks while it
+    # browses, so these tries are also the grace window.
+    for _ in range(max(1, settle_tries)):
+        if mdns.advertised():
+            return {"ok": True, "healed": False, "message": "advertised"}
+        if sunshine.is_streaming():
+            # Reachable to the active client regardless; never drop a session.
+            return {"ok": True, "healed": False,
+                    "message": "not advertised but streaming; left alone"}
+    # Still invisible and idle → re-register by restarting Sunshine.
+    ok, msg = sunshine.restart()
+    if ok:
+        apply_persisted_composition()
+    # Sunshine publishes _nvstream a beat after its port binds; give it a few
+    # browse cycles to land before judging the re-register failed (advertised()
+    # blocks while browsing, so this is also the wait).
+    advertised = False
+    for _ in range(3):
+        if mdns.advertised():
+            advertised = True
+            break
+    return {"ok": bool(ok and advertised), "healed": bool(ok),
+            "message": ("re-registered; now advertised" if advertised
+                        else "restarted but still not advertised (%s)" % msg)}
 
 
 def set_sunshine_login(username, password):

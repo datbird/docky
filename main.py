@@ -165,6 +165,20 @@ async def _autostart_sunshine():
     # Start Sunshine on load (at boot) if enabled. sunshine.start() blocks while
     # waiting for the port to bind, so run it in a thread to keep _main snappy.
     # Module-level (NOT a Plugin method) — Decky's class wrapping breaks self.*.
+
+    # First guarantee Moonlight discovery works: SteamOS keeps avahi in
+    # resolve-only mode and re-disables publishing on updates, which silently
+    # breaks host discovery and the <host>.local fallback. Do this BEFORE
+    # starting Sunshine so it registers _nvstream cleanly. Runs even when
+    # autostart is off, so avahi is ready for a later manual start.
+    try:
+        res = await asyncio.to_thread(docky.ensure_mdns)
+        if res.get("changed") or not res.get("ok"):
+            (decky.logger.info if res.get("ok") else decky.logger.warning)(
+                "%s", res.get("message"))
+    except Exception:  # noqa: BLE001
+        decky.logger.exception("ensure mDNS failed")
+
     try:
         attempted, ok, msg = await asyncio.to_thread(docky.autostart_sunshine)
         if attempted:
@@ -173,15 +187,31 @@ async def _autostart_sunshine():
     except Exception:  # noqa: BLE001
         decky.logger.exception("autostart Sunshine failed")
 
+    # Verify Sunshine actually became discoverable. ensure_mdns() above ran
+    # BEFORE Sunshine existed, so this is the first point we can confirm the end
+    # state: at boot Sunshine can register _nvstream into an avahi that isn't up
+    # yet (a ~1s race) and stay invisible with no error. If so, re-register.
+    try:
+        res = await asyncio.to_thread(docky.ensure_discoverable)
+        if res.get("healed") or not res.get("ok"):
+            (decky.logger.info if res.get("ok") else decky.logger.warning)(
+                "discovery heal: %s", res.get("message"))
+    except Exception:  # noqa: BLE001
+        decky.logger.exception("ensure discoverable failed")
+
 
 async def _startup_composition():
-    # Re-apply the saved force-composition preference on load (boot): the
-    # gamescope atom is runtime-only and resets every reboot. Module-level —
-    # Decky's class wrapping breaks self.method().
+    # Re-apply the saved force-composition AND force-HDR preferences on load
+    # (boot): both gamescope atoms are runtime-only and reset every reboot.
+    # Module-level — Decky's class wrapping breaks self.method().
     try:
         await asyncio.to_thread(docky.apply_persisted_composition)
     except Exception:  # noqa: BLE001
         decky.logger.exception("startup composition failed")
+    try:
+        await asyncio.to_thread(docky.apply_persisted_hdr)
+    except Exception:  # noqa: BLE001
+        decky.logger.exception("startup HDR failed")
 
 
 async def _sunshine_watch():
@@ -211,6 +241,38 @@ async def _sunshine_watch():
             await asyncio.sleep(10)
 
 
+async def _mdns_watch():
+    # Keep Sunshine discoverable for the whole session, not just at boot.
+    # Sunshine registers its _nvstream mDNS record once, at startup; anything
+    # that restarts avahi afterwards (a SteamOS update re-disabling publishing,
+    # a DHCP/network change) silently drops the record and Moonlight shows "host
+    # offline" while Sunshine is otherwise fine. Re-register when that happens —
+    # never mid-stream (ensure_discoverable guards on is_streaming). Backs off
+    # after a heal or persistent failure so it can't thrash. Module-level —
+    # Decky's class wrapping breaks self.*.
+    misses = 0
+    while True:
+        await asyncio.sleep(20)
+        try:
+            res = await asyncio.to_thread(docky.ensure_discoverable)
+            if res.get("healed"):
+                decky.logger.warning(
+                    "mDNS watchdog: re-registered Sunshine (%s)", res.get("message"))
+                misses = 0
+                await asyncio.sleep(30)  # let the new record settle
+            elif not res.get("ok"):
+                misses += 1
+                decky.logger.warning("mDNS watchdog: %s", res.get("message"))
+                await asyncio.sleep(min(120, 20 * misses))
+            else:
+                misses = 0
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            decky.logger.exception("mDNS watchdog error")
+            await asyncio.sleep(30)
+
+
 class Plugin:
     _watch_task = None
     _autostart_task = None
@@ -219,6 +281,7 @@ class Plugin:
     _tdp_task = None
     _composition_task = None
     _sunshine_watch_task = None
+    _mdns_task = None
 
     # ---- frontend-callable ----
 
@@ -330,6 +393,15 @@ class Plugin:
             return res
         except Exception as e:  # noqa: BLE001
             decky.logger.exception("set_force_composition failed")
+            return {"ok": False, "message": str(e)}
+
+    async def set_force_hdr(self, enabled):
+        try:
+            res = await asyncio.to_thread(docky.set_force_hdr, enabled)
+            res["state"] = docky.get_state()
+            return res
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("set_force_hdr failed")
             return {"ok": False, "message": str(e)}
 
     async def set_sunshine_watchdog(self, enabled):
@@ -456,12 +528,13 @@ class Plugin:
         self._tdp_task = asyncio.create_task(_tdp_watch())
         self._composition_task = asyncio.create_task(_startup_composition())
         self._sunshine_watch_task = asyncio.create_task(_sunshine_watch())
+        self._mdns_task = asyncio.create_task(_mdns_watch())
         decky.logger.info("Docky loaded; config=%s", docky.CONFIG_PATH)
 
     async def _unload(self):
         for task in (self._watch_task, self._autostart_task, self._startup_task,
                      self._fan_task, self._tdp_task, self._composition_task,
-                     self._sunshine_watch_task):
+                     self._sunshine_watch_task, self._mdns_task):
             if task:
                 task.cancel()
         decky.logger.info("Docky unloaded")

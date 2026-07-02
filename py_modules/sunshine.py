@@ -16,6 +16,7 @@ and the user's audio socket.
 """
 
 import os
+import re
 import ssl
 import json
 import time
@@ -133,6 +134,36 @@ def is_running():
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
+
+
+def _serverinfo(timeout=3):
+    """Fetch Sunshine's unauthenticated Moonlight serverinfo XML, or None. This
+    is the exact endpoint a Moonlight client hits first, so it's the truest
+    'is Sunshine actually answering clients' signal."""
+    try:
+        with urllib.request.urlopen(
+                "http://127.0.0.1:47989/serverinfo?uuid=docky", timeout=timeout) as r:
+            return r.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def is_responsive():
+    """True if Sunshine answers its Moonlight serverinfo endpoint (a running
+    process can still be wedged and not answer)."""
+    return _serverinfo() is not None
+
+
+def is_streaming():
+    """True while a Moonlight client is actively streaming — callers use this to
+    avoid restarting Sunshine out from under a live session."""
+    xml = _serverinfo()
+    if not xml:
+        return False
+    if "SUNSHINE_SERVER_BUSY" in xml:
+        return True
+    m = re.search(r"<currentgame>(\d+)</currentgame>", xml)
+    return bool(m and m.group(1) != "0")
 
 
 FLATHUB_REPO = "https://flathub.org/repo/flathub.flatpakrepo"
@@ -309,26 +340,26 @@ def restart():
     return start()
 
 
-def set_composition(enabled):
-    """Force (or release) gamescope full-frame composition via its root-window
-    atom, so a docked capture isn't squeezed/stretched. Set as the session user
-    because the atom lives on that user's display :0."""
+def _set_gamescope_atom(atom, enabled, what):
+    """Set a boolean gamescope root-window atom (0/1) on the session user's
+    display :0 — the atoms live there and gamescope reads them live. Set as the
+    session user (Sunshine's backend runs as root). `what` names the feature for
+    the status message. Returns (ok, message)."""
     value = "1" if enabled else "0"
-    cmd = ("DISPLAY=:0 xprop -root -f GAMESCOPE_COMPOSITE_FORCE 32c "
-           "-set GAMESCOPE_COMPOSITE_FORCE " + value)
+    cmd = "DISPLAY=:0 xprop -root -f %s 32c -set %s %s" % (atom, atom, value)
     try:
         res = subprocess.run(["su", SESSION_USER, "-c", cmd], timeout=10,
                              capture_output=True, text=True, env=_clean_env())
     except (OSError, subprocess.TimeoutExpired) as e:
-        return False, "could not set composition: %s" % e
+        return False, "could not set %s: %s" % (what, e)
     if res.returncode == 0:
-        return True, "composition forced %s" % ("on" if enabled else "off")
+        return True, "%s %s" % (what, "on" if enabled else "off")
     return False, (res.stderr or "xprop failed").strip()[:200]
 
 
-def get_composition():
-    """Return True if GAMESCOPE_COMPOSITE_FORCE is currently set nonzero on :0."""
-    cmd = "DISPLAY=:0 xprop -root GAMESCOPE_COMPOSITE_FORCE"
+def _get_gamescope_atom(atom):
+    """Return True if the boolean gamescope `atom` is currently set nonzero on :0."""
+    cmd = "DISPLAY=:0 xprop -root %s" % atom
     try:
         res = subprocess.run(["su", SESSION_USER, "-c", cmd], timeout=10,
                              capture_output=True, text=True, env=_clean_env())
@@ -345,17 +376,50 @@ def get_composition():
         return False
 
 
-def apply_composition(mode):
-    """Apply a composition action: 'on' | 'off' | 'toggle'. Toggle flips the
-    current atom value. Returns (ok, message)."""
+def _apply_atom_mode(mode, getter, setter):
+    """Apply an 'on' | 'off' | 'toggle' action to a boolean atom. Toggle flips
+    the current value. Returns (ok, message)."""
     mode = (mode or "on").lower()
     if mode == "toggle":
-        enabled = not get_composition()
+        enabled = not getter()
     elif mode == "off":
         enabled = False
     else:
         enabled = True
-    return set_composition(enabled)
+    return setter(enabled)
+
+
+def set_composition(enabled):
+    """Force (or release) gamescope full-frame composition via its root-window
+    atom, so a docked capture isn't squeezed/stretched."""
+    return _set_gamescope_atom("GAMESCOPE_COMPOSITE_FORCE", enabled, "composition forced")
+
+
+def get_composition():
+    """Return True if GAMESCOPE_COMPOSITE_FORCE is currently set nonzero on :0."""
+    return _get_gamescope_atom("GAMESCOPE_COMPOSITE_FORCE")
+
+
+def apply_composition(mode):
+    """Apply a composition action: 'on' | 'off' | 'toggle'. Returns (ok, message)."""
+    return _apply_atom_mode(mode, get_composition, set_composition)
+
+
+def set_hdr(enabled):
+    """Enable/disable HDR output in the Game-Mode gamescope session via its
+    GAMESCOPE_DISPLAY_HDR_ENABLED atom (writable at runtime, resets on reboot).
+    The display + content must support HDR for it to have any visible effect."""
+    return _set_gamescope_atom("GAMESCOPE_DISPLAY_HDR_ENABLED", enabled, "HDR")
+
+
+def get_hdr():
+    """Return True if GAMESCOPE_DISPLAY_HDR_ENABLED is currently set nonzero on :0."""
+    return _get_gamescope_atom("GAMESCOPE_DISPLAY_HDR_ENABLED")
+
+
+def apply_hdr(mode):
+    """Apply an HDR action: 'on' | 'off' | 'toggle'. Returns (ok, message)."""
+    return _apply_atom_mode(mode, get_hdr, set_hdr)
 
 
 def get_encoder():

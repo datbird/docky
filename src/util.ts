@@ -145,6 +145,7 @@ export interface DockyState {
     engine?: string;
     resolvedEngine?: string;
     forceComposition?: boolean;
+    forceHdr?: boolean;
     watchdog?: boolean;
   };
   fan?: FanStatus;

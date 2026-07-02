@@ -182,6 +182,24 @@
             summary: (t) => "Sunshine composition: " + (t.mode || (t.enabled ? "on" : "off")),
         },
         {
+            type: "sunshine_hdr",
+            label: "Display: HDR on/off (Game Mode)",
+            builtin: true,
+            fields: [
+                {
+                    key: "mode",
+                    kind: "select",
+                    label: "Action",
+                    options: [
+                        { data: "on", label: "On" },
+                        { data: "off", label: "Off" },
+                        { data: "toggle", label: "Toggle" },
+                    ],
+                },
+            ],
+            summary: (t) => "HDR: " + (t.mode || (t.enabled ? "on" : "off")),
+        },
+        {
             type: "sunshine_encoder",
             label: "Sunshine: set video encoder",
             builtin: true,
@@ -1658,6 +1676,8 @@
                                 : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null))))),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Fix stretched image when docked", description: "Forces gamescope composition; re-applied automatically after reboots.", checked: !!(state.sunshine && state.sunshine.forceComposition), disabled: busy, onChange: (v) => fanTdpCall("set_force_composition", { enabled: v }, "Updating composition") })),
+                window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                    window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "HDR (Game Mode)", description: "Enables HDR output; re-applied automatically after reboots. Display and content must support HDR.", checked: !!(state.sunshine && state.sunshine.forceHdr), disabled: busy, onChange: (v) => fanTdpCall("set_force_hdr", { enabled: v }, "Updating HDR") })),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Keep Sunshine running", description: "Relaunch Sunshine automatically if it crashes.", checked: !(state.sunshine && state.sunshine.watchdog === false), disabled: busy, onChange: (v) => fanTdpCall("set_sunshine_watchdog", { enabled: v }, "Updating watchdog") }))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,

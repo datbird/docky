@@ -451,6 +451,17 @@ const Content: VFC = () => {
         </PanelSectionRow>
         <PanelSectionRow>
           <ToggleField
+            label="HDR (Game Mode)"
+            description="Enables HDR output; re-applied automatically after reboots. Display and content must support HDR."
+            checked={!!(state.sunshine && state.sunshine.forceHdr)}
+            disabled={busy}
+            onChange={(v: boolean) =>
+              fanTdpCall("set_force_hdr", { enabled: v }, "Updating HDR")
+            }
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
             label="Keep Sunshine running"
             description="Relaunch Sunshine automatically if it crashes."
             checked={!(state.sunshine && state.sunshine.watchdog === false)}

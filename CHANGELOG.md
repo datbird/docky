@@ -3,6 +3,24 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-07-02
+
+### Added
+- **Self-healing Sunshine discovery (mDNS).** Moonlight finds a host by browsing
+  for its `_nvstream` mDNS record, which Sunshine registers only once at startup.
+  On SteamOS that registration silently fails in two common cases — a boot race
+  (Sunshine starts before avahi is ready) and avahi restarting later (a system
+  update or DHCP/network change), both of which drop the record with no error —
+  leaving Moonlight showing "host offline" while Sunshine is otherwise healthy.
+  Docky now guarantees discovery: it enables and configures avahi publishing,
+  verifies after startup that the record actually landed and re-registers if it
+  didn't, and runs a lightweight watchdog that re-registers within seconds if the
+  record ever disappears. It never interrupts a live stream.
+- **HDR toggle (Game Mode).** A new **"HDR (Game Mode)"** panel toggle and a
+  **"Display: HDR on/off"** task, mirroring the existing composition control. The
+  gamescope HDR atom is runtime-only and resets each reboot, so Docky persists the
+  preference and re-applies it on boot. The toggle reflects the live HDR state.
+
 ## [1.2.1] — 2026-06-29
 
 ### Fixed
