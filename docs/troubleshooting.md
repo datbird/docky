@@ -51,6 +51,22 @@
 - If you use `decky-sunshine`, set the engine to **Auto** (or decky-sunshine) so
   Docky doesn't fight it over the port.
 
+## Moonlight connects but errors "Failed to initialize video capture/encoding" (503)
+- Sunshine is running but couldn't build its screen-capture pipeline — almost
+  always because the display wasn't ready when it started: a **docked boot** (the
+  external screen hadn't come up yet), a **resume-from-sleep**, or a **dock/undock**
+  that switched the active display. Sunshine builds capture only once at launch and
+  doesn't rebuild it, so every connection then fails until it restarts.
+- Docky now **self-heals** this: it watches Sunshine's capture health and, when a
+  display is lit and you're not mid-stream, restarts Sunshine to rebuild capture
+  against the current display — usually within ~15 seconds of the failure, or the
+  moment it sees a dock/undock. Just retry Moonlight after a few seconds.
+- If it *persists* after a couple of restarts, Docky backs off (a genuinely dead
+  encoder or an unlit display can't be fixed by restarting): check that a display is
+  actually on and awake, and that your encoder works (Sunshine panel → **Encoder**;
+  VAAPI is the safe default on the Deck). See
+  [Sunshine → Staying up and discoverable](sunshine.md#staying-up-and-discoverable).
+
 ## Moonlight shows the Deck as "offline" / can't find it
 - This is a **discovery** (mDNS) problem, not a Sunshine one — Sunshine is
   usually running fine; Moonlight just can't see its `_nvstream` record. Docky now

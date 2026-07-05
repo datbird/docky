@@ -822,6 +822,18 @@ DECKY_SUNSHINE = "decky-sunshine"
 # governs the initial state instead).
 _sunshine_user_stopped = False
 
+# --- Capture-health heal state (module-level; resets on plugin reload/boot) ---
+# Guards ensure_capture_healthy() against thrash when it heals the "running but
+# capture is dead" (Error 503) state.
+_capture_unhealthy_streak = 0   # consecutive definitive-unhealthy reads (debounce)
+_capture_failed_heals = 0       # consecutive heal restarts that didn't stick (cap)
+_capture_last_heal = -1e9       # monotonic time of the last heal restart (cooldown)
+_last_active_outputs = None     # last seen display topology (dock/undock detector)
+
+_CAPTURE_DEBOUNCE = 2           # consecutive bad reads required before acting
+_CAPTURE_COOLDOWN = 45.0        # min seconds between capture-heal restarts
+_CAPTURE_MAX_FAILED_HEALS = 3   # stop restarting after this many that don't fix it
+
 
 def sunshine_engine(cfg=None):
     """The raw sunshineEngine setting ('auto' by default)."""
@@ -1104,6 +1116,107 @@ def sunshine_autorestart():
     if ok:
         apply_persisted_composition()
     return ok, msg
+
+
+def ensure_capture_healthy():
+    """Detect and heal the 'running but capture is dead' state — Moonlight's
+    "Error 503: Failed to initialize video capture/encoding". Sunshine can be up,
+    responsive AND discoverable yet unable to capture: it builds its KMS/encoder
+    pipeline once at launch and never rebuilds it, so a display that wasn't ready
+    at that moment (docked boot, resume-from-sleep, a dock/undock that swapped the
+    active connector) wedges every stream until a restart. The liveness watchdog
+    can't see this (the process is fine), so capture gets its own heal.
+
+    Two triggers, both ending in a restart that rebuilds capture against the
+    CURRENT display:
+      • proactive — the active display topology changed (dock/undock/output
+        switch), which reliably stales KMS capture; rebuild while idle so the
+        user's first connect after docking already works;
+      • reactive — Sunshine's own log says the latest probe hit the no-display /
+        no-encoder fatal.
+
+    Heavily guarded against thrash: Game Mode + integrated + installed +
+    user-not-stopped only; the reactive heal fires only on a DEFINITIVE log
+    failure (never 'unknown'), debounced across ticks; both paths are
+    rate-limited by a cooldown, gated on a display actually being lit, and capped
+    so a genuinely unfixable failure can't spin. Never restarts mid-stream.
+    Returns a status dict when it acts/observes something notable, else None."""
+    global _capture_unhealthy_streak, _capture_failed_heals, _capture_last_heal
+    global _last_active_outputs
+    if resolved_engine() != "integrated" or not sunshine.is_installed():
+        return None
+    if _sunshine_user_stopped or not in_game_mode() or not sunshine.is_running():
+        _capture_unhealthy_streak = 0
+        return None
+    if sunshine.is_streaming():
+        # Capture is demonstrably working; never touch a live session.
+        _capture_unhealthy_streak = 0
+        _capture_failed_heals = 0
+        return None
+
+    now = time.monotonic()
+    cooldown_ok = (now - _capture_last_heal) >= _CAPTURE_COOLDOWN
+    display_lit = sunshine.display_active() is not False  # True/None → treat as lit
+
+    # --- proactive: did the display topology change since we last looked? ---
+    outs = sunshine.active_outputs()
+    topo_changed = (_last_active_outputs is not None
+                    and outs != _last_active_outputs and outs != "")
+    _last_active_outputs = outs
+    if topo_changed and display_lit and cooldown_ok:
+        _capture_last_heal = now
+        _capture_unhealthy_streak = 0
+        _capture_failed_heals = 0
+        return _capture_restart("display changed (%s) — rebuilt capture" % outs)
+
+    # --- reactive: does Sunshine's log say capture is failing right now? ---
+    if sunshine.capture_healthy() is not False:      # True (ok) or None (unknown)
+        _capture_unhealthy_streak = 0
+        _capture_failed_heals = 0
+        return None
+    _capture_unhealthy_streak += 1
+    if _capture_unhealthy_streak < _CAPTURE_DEBOUNCE:
+        return None
+    if not display_lit:
+        return {"ok": True, "healed": False,
+                "message": "capture down but no display lit; waiting for one"}
+    if not cooldown_ok:
+        return None
+    if _capture_failed_heals >= _CAPTURE_MAX_FAILED_HEALS:
+        return {"ok": False, "healed": False,
+                "message": "capture still failing after %d restarts; giving up "
+                           "(check the display/encoder)" % _capture_failed_heals}
+    _capture_last_heal = now
+    _capture_unhealthy_streak = 0
+    return _capture_restart("capture was failing — restarted to rebuild it")
+
+
+def _capture_restart(success_msg):
+    """Restart Sunshine to rebuild its capture pipeline (start() ensures
+    `capture = kms` first), then confirm from the fresh startup probe whether
+    capture recovered, updating the failed-heal cap counter. Returns a status
+    dict."""
+    global _capture_failed_heals
+    ok, msg = sunshine.restart()
+    if not ok:
+        _capture_failed_heals += 1
+        return {"ok": False, "healed": False, "message": "capture restart failed: " + msg}
+    apply_persisted_composition()
+    # The fresh process truncates the log and writes a new probe verdict within a
+    # second or two; read it back to see whether capture actually recovered.
+    recovered = None
+    for _ in range(10):
+        time.sleep(0.5)
+        v = sunshine.capture_healthy()
+        if v is not None:
+            recovered = v
+            break
+    if recovered is False:
+        _capture_failed_heals += 1
+        return {"ok": False, "healed": True,
+                "message": "restarted but capture still failing"}
+    _capture_failed_heals = 0
+    return {"ok": True, "healed": True, "message": success_msg}
 
 
 def ensure_mdns():

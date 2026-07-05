@@ -128,6 +128,31 @@ session, uses a short grace window so a just-started Sunshine that's about to
 publish isn't bounced needlessly, and the periodic watchdog backs off after a heal
 so it can't thrash.
 
+### Capture health is judged from Sunshine's log, and healed by restart
+Sunshine builds its KMS capture + encoder pipeline **once, at startup** (and only
+re-tests it when a client connects), and never rebuilds it in-process. So if the
+display wasn't ready at that instant — a docked boot where the external panel
+hadn't trained yet, a resume-from-sleep, a dock/undock that swapped the active
+connector — capture stays dead and every stream returns *"Error 503: Failed to
+initialize video capture/encoding"* indefinitely. The crash watchdog can't see
+this: the process is alive, `is_running()` and even `is_responsive()` (serverinfo
+answers) stay true. **The only honest signal is Sunshine's own log** — each probe
+ends in a decisive `Found H.264/HEVC encoder` (healthy) or `Unable to find display
+or encoder` (the 503). `capture_healthy()` returns the most recent verdict (or
+`None` when unknown), keying strictly off those lines and **not** the benign
+`Encoder [x] failed` auto-detect noise Sunshine itself says to ignore. The heal is
+a restart — the same "only Sunshine can rebuild its own state" logic as the
+discovery heal — triggered either reactively (a definitive failing verdict) or
+proactively (the active display topology changed; fingerprinted on
+connected+enabled connectors, **not** dpms, so a dock/undock triggers it but a
+screen merely sleeping does not). It's guarded like the others — Game Mode only,
+never mid-stream (`is_streaming()`), debounced over consecutive reads, rate-limited
+by a cooldown, gated on a display actually being lit (`display_active()` — a
+restart into a dark panel would just fail again), and **capped** so a genuinely
+unfixable failure (no encoder at all) can't restart-loop. It shares one watchdog
+(`_sunshine_watch`) with crash-relaunch, so the two failure modes have a single
+owner and can't race to restart.
+
 ### Composition/HDR gamescope atoms are runtime-only, so the preference is persisted
 `GAMESCOPE_COMPOSITE_FORCE` and `GAMESCOPE_DISPLAY_HDR_ENABLED` are runtime state
 that resets every reboot (and on resume-from-sleep). Docky persists the

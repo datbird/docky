@@ -121,8 +121,17 @@ to babysit it:
 
 - **Watchdog** — the **Keep Sunshine running** toggle (on by default) relaunches
   Sunshine automatically if it crashes, so a streaming host failure recovers on
-  its own. It honors an explicit **Stop** from the panel and backs off after
-  repeated failures.
+  its own. It also heals a subtler failure: Sunshine can stay *running* yet be
+  unable to capture the screen, so Moonlight connects but every stream fails with
+  **"Error 503: Failed to initialize video capture/encoding"**. Sunshine builds its
+  capture pipeline once, at launch, and never rebuilds it, so this happens whenever
+  the display wasn't ready at that moment — a **docked boot** (the external panel
+  hadn't come up yet), a **resume-from-sleep**, or a **dock/undock** that swapped
+  the active display. Docky detects it from Sunshine's own capture probe (and
+  notices dock/undock directly) and restarts Sunshine to rebuild the pipeline
+  against the current display, usually within ~15 seconds. It honors an explicit
+  **Stop** from the panel, is debounced and rate-limited so it can't thrash, only
+  acts when a display is actually lit, and never interrupts a live stream.
 - **Self-healing discovery (mDNS)** — Moonlight finds the Deck by browsing for
   Sunshine's `_nvstream` mDNS record and by resolving `<host>.local`, both served
   by avahi. SteamOS ships avahi installed but with **publishing disabled**, and

@@ -3,6 +3,29 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.2] — 2026-07-05
+
+### Fixed
+- **Sunshine now self-heals "Error 503: Failed to initialize video
+  capture/encoding".** Sunshine can stay *running*, responsive and discoverable
+  yet be unable to capture the screen — so Moonlight connects but every stream
+  fails with error 503. It builds its capture/encoder pipeline once, at launch,
+  and never rebuilds it, so a display that wasn't ready at that moment wedges it
+  until a restart: a **docked boot** (the external panel hadn't come up yet), a
+  **resume-from-sleep**, or a **dock/undock** that swapped the active display. The
+  existing watchdog only caught crashes (the process here is alive), so this could
+  sit broken until noticed. Docky now judges capture health from Sunshine's own
+  probe verdict and, on either a definitive capture failure or a display-topology
+  change (dock/undock), restarts Sunshine to rebuild the pipeline against the
+  current display — typically within ~15 seconds. Heavily guarded: only in Game
+  Mode, debounced, rate-limited, capped so an unfixable failure can't thrash, gated
+  on a display actually being lit, and it never interrupts a live stream.
+- **`capture = kms` is now ensured on every Sunshine start.** Launched as root in
+  the Game-Mode session, Sunshine can't use the wayland/portal capture backends;
+  without an explicit `capture` key it auto-picks one that fails as root (another
+  path to error 503). Docky adds `capture = kms` when the key is absent, leaving a
+  deliberate choice untouched.
+
 ## [1.4.1] — 2026-07-02
 
 ### Fixed

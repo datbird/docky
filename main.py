@@ -242,25 +242,38 @@ async def _atoms_watch():
 
 
 async def _sunshine_watch():
-    # Keep an integrated, Docky-owned Sunshine alive: relaunch it if it crashes
-    # (e.g. the known session::video segfault). Honors an explicit Stop (docky
-    # tracks user intent) and backs off after failures so a Sunshine that dies
-    # on startup can't spin. Module-level — Decky's class wrapping breaks self.*.
+    # Keep an integrated, Docky-owned Sunshine both ALIVE and ABLE TO CAPTURE.
+    # Two failure modes, one owner (so they can't race to restart):
+    #   • not running — relaunch it (e.g. the known session::video segfault);
+    #   • running but capture is dead — the "Error 503: failed to init video
+    #     capture" state after a docked boot / resume / dock change, which the
+    #     liveness check can't see because the process stays up and responsive.
+    # Honors an explicit Stop (docky tracks user intent) and backs off after
+    # failures so a Sunshine that dies on startup can't spin. ensure_capture_healthy
+    # is itself debounced / cooldown-limited / capped and never acts mid-stream.
+    # Module-level — Decky's class wrapping breaks self.*.
     fails = 0
     while True:
         await asyncio.sleep(6)
         try:
-            if not await asyncio.to_thread(docky.sunshine_should_autorestart):
-                fails = 0
+            if await asyncio.to_thread(docky.sunshine_should_autorestart):
+                ok, msg = await asyncio.to_thread(docky.sunshine_autorestart)
+                if ok:
+                    fails = 0
+                    decky.logger.warning("Sunshine watchdog: relaunched (%s)", msg)
+                else:
+                    fails += 1
+                    decky.logger.warning("Sunshine watchdog: relaunch failed (%s)", msg)
+                # Pace relaunch attempts; widen the gap after repeated failures.
+                await asyncio.sleep(min(120, 10 + 15 * fails))
                 continue
-            ok, msg = await asyncio.to_thread(docky.sunshine_autorestart)
-            if ok:
-                decky.logger.warning("Sunshine watchdog: relaunched (%s)", msg)
-            else:
-                fails += 1
-                decky.logger.warning("Sunshine watchdog: relaunch failed (%s)", msg)
-            # Pace relaunch attempts; widen the gap after repeated failures.
-            await asyncio.sleep(min(120, 10 + 15 * fails))
+            fails = 0
+            # Running: make sure it can actually CAPTURE (Error 503 heal).
+            res = await asyncio.to_thread(docky.ensure_capture_healthy)
+            if res and (res.get("healed") or not res.get("ok")):
+                decky.logger.warning("Sunshine capture watchdog: %s", res.get("message"))
+                if res.get("healed"):
+                    await asyncio.sleep(30)  # let the fresh capture pipeline settle
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001

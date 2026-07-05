@@ -21,6 +21,7 @@ import ssl
 import json
 import time
 import base64
+import glob
 import shutil
 import subprocess
 import urllib.request
@@ -291,6 +292,7 @@ def start():
         return True, "Sunshine already running"
     if not is_installed():
         return False, "Sunshine is not installed — install it in Settings → Sunshine"
+    ensure_capture_kms()  # root-launched Sunshine needs KMS capture (else Error 503)
     if _last_proc is not None and _last_proc.poll() is not None:
         _last_proc = None  # previous launch exited; its child has been reaped
     if not _prepare_bwrap():
@@ -356,6 +358,121 @@ def restart():
         # start() would just report "already running" and mask that. Surface it.
         return False, "couldn't stop Sunshine: " + msg
     return start()
+
+
+# ---- Capture health -------------------------------------------------------
+#
+# Sunshine builds its KMS capture + encoder pipeline once, at process start, and
+# re-tests it only when a client connects. If that init fails — almost always
+# because the display wasn't ready at that instant (a docked boot where the
+# external panel hadn't finished coming up, a resume-from-sleep, or a dock/undock
+# that swapped the active connector) — the process keeps running but every stream
+# attempt returns "Error 503: Failed to initialize video capture/encoding". It
+# does NOT rebuild the pipeline in-process; only a fresh start fixes it. Crucially
+# is_running()/is_responsive() stay true throughout (serverinfo still answers), so
+# a liveness check can't detect it. The one honest signal is Sunshine's own log:
+# every probe ends in a decisive success ("Found H.264/HEVC encoder") or the fatal
+# "Unable to find display or encoder". The most recent verdict is current health.
+
+LOG_PATH = "/root/.var/app/%s/config/sunshine/sunshine.log" % APP_ID
+
+_PROBE_OK = re.compile(r"Found (?:H\.264|HEVC|AV1) encoder")
+_PROBE_FAIL = re.compile(
+    r"Unable to find display or encoder|Video failed to find working encoder")
+
+
+def _tail_text(path, max_bytes=65536):
+    """Return roughly the last max_bytes of a text file decoded to str, or '' if
+    it can't be read. Reads from the end so a long-lived log stays cheap."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - max_bytes))
+            return f.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def capture_healthy():
+    """Judge Sunshine's capture/encoder pipeline from the most recent probe verdict
+    in its log. Returns True (last probe found an encoder), False (last probe hit
+    the 'no display / no encoder' fatal — the Error 503 state), or None (no verdict
+    in view: unknown, so callers should do nothing). Keys ONLY off the decisive
+    success/fatal lines — never the benign 'Encoder [x] failed' noise the startup
+    auto-detection prints (which Sunshine itself labels safe to ignore)."""
+    verdict = None
+    for line in _tail_text(LOG_PATH).splitlines():
+        if _PROBE_OK.search(line):
+            verdict = True
+        elif _PROBE_FAIL.search(line):
+            verdict = False
+    return verdict
+
+
+def _drm_connectors():
+    """Yield (name, status, enabled, dpms) for each DRM connector under sysfs.
+    dpms defaults to 'On' when the attribute is absent (some connectors omit it;
+    connected+enabled is then enough to consider it lit)."""
+    for base in sorted(glob.glob("/sys/class/drm/card*-*/")):
+        try:
+            with open(os.path.join(base, "status")) as f:
+                status = f.read().strip()
+            with open(os.path.join(base, "enabled")) as f:
+                enabled = f.read().strip()
+        except OSError:
+            continue
+        try:
+            with open(os.path.join(base, "dpms")) as f:
+                dpms = f.read().strip()
+        except OSError:
+            dpms = "On"
+        yield os.path.basename(base.rstrip("/")), status, enabled, dpms
+
+
+def display_active():
+    """True if at least one connector is connected AND enabled AND powered on
+    (dpms On) — something is actually lit to capture. False if connectors were
+    readable but none are lit. None if sysfs couldn't be read at all. Gates a
+    capture-heal restart: restarting into a dark display would just fail again."""
+    read_any = False
+    for _name, status, enabled, dpms in _drm_connectors():
+        read_any = True
+        if status == "connected" and enabled == "enabled" and dpms == "On":
+            return True
+    return False if read_any else None
+
+
+def active_outputs():
+    """A stable fingerprint of the compositor's active outputs: the connected AND
+    enabled connectors (e.g. 'card0-DP-1'). Keys off connected+enabled only — NOT
+    dpms — so it changes on a real dock/undock or output switch (which swaps the
+    active connector and stales Sunshine's KMS capture) but NOT when the screen
+    merely sleeps. '' if none / unreadable."""
+    return ",".join(
+        name for name, status, enabled, _dpms in _drm_connectors()
+        if status == "connected" and enabled == "enabled")
+
+
+def ensure_capture_kms():
+    """Guarantee `capture = kms` is in Sunshine's config. Launched as root inside
+    the Game-Mode session, Sunshine can't use the wayland/portal capture backends
+    (no user session bus), so with no explicit capture key it auto-picks one that
+    fails as root → Error 503. Only writes when the key is ABSENT, so a user's
+    deliberate choice is left alone. Returns (changed, message)."""
+    try:
+        lines = []
+        if os.path.isfile(CONF_PATH):
+            with open(CONF_PATH, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        for ln in lines:
+            if ln.partition("=")[0].strip().lower() == "capture":
+                return False, "capture already configured"
+        lines.append("capture = kms")
+        _atomic_write(CONF_PATH, "\n".join(lines) + "\n")
+    except OSError as e:
+        return False, "could not write Sunshine config: %s" % e
+    return True, "set capture = kms"
 
 
 def _set_gamescope_atom(atom, enabled, what):

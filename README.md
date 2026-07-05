@@ -45,8 +45,10 @@ Trigger— an event (dock/undock, AC, controller, resume, startup) → a Mode
 - **Sunshine** — install/update from Flathub, start/stop/restart, set the
   encoder, force composition, toggle Game-Mode **HDR**, and pair/manage Moonlight
   clients — or defer to the `decky-sunshine` plugin (auto-detected). A **watchdog**
-  relaunches it if it crashes, and Docky keeps it **discoverable** (self-healing
-  mDNS) so Moonlight finds the Deck after a reboot instead of showing it offline.
+  relaunches it if it crashes **and rebuilds its screen capture if it can't grab the
+  display** — the docked-boot / resume / dock-change *"Error 503"* — and Docky keeps
+  it **discoverable** (self-healing mDNS) so Moonlight finds the Deck after a reboot
+  instead of showing it offline.
 - **In-Game-Mode editor** — build Actions, Modes, Favorites, Triggers, and
   Sunshine settings from the gear menu; nothing persists until you Save.
 
