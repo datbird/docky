@@ -34,6 +34,41 @@ _TRANSITION_TRIGGERS = [
 ]
 
 
+# Detached background tasks (e.g. the post-resume capture rebuild) — held in a set
+# so they aren't garbage-collected mid-flight, and discarded when they finish.
+_bg_tasks = set()
+
+
+def _spawn(coro):
+    t = asyncio.create_task(coro)
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
+    return t
+
+
+async def _capture_rebuild_after_resume(slept):
+    # After resume-from-sleep the display re-initializes (gamescope atoms reset,
+    # the panel re-trains) but usually with the SAME connectors — so neither the
+    # reactive capture check nor the topology detector fires, yet Sunshine's
+    # once-at-launch capture pipeline can be stale (Error 503 on the first connect).
+    # Wait for a display to wake, then proactively rebuild. Detached, bounded
+    # (~30s), and cooldown-shared with the watchdog so the two can't double-restart.
+    for _ in range(15):  # give the panel up to ~30s to come back
+        await asyncio.sleep(2)
+        try:
+            if await asyncio.to_thread(docky.sunshine_display_lit):
+                break
+        except Exception:  # noqa: BLE001
+            break
+    try:
+        res = await asyncio.to_thread(docky.rebuild_capture_after_resume)
+        if res and res.get("healed"):
+            decky.logger.warning("Sunshine capture watchdog: %s (resumed, slept %ds)",
+                                 res.get("message"), int(slept))
+    except Exception:  # noqa: BLE001
+        decky.logger.exception("resume capture rebuild failed")
+
+
 async def _fire(mode, why):
     if not mode:
         return
@@ -67,8 +102,12 @@ async def _trigger_watch():
             boot1 = time.clock_gettime(time.CLOCK_BOOTTIME)
             slept = (boot1 - boot0) - (mono1 - mono0)
             mono0, boot0 = mono1, boot1
-            if not first and s.get("autoResume") and slept > 20:
-                await _fire(s.get("resumeMode"), "resume (slept %ds)" % int(slept))
+            if not first and slept > 20:
+                if s.get("autoResume"):
+                    await _fire(s.get("resumeMode"), "resume (slept %ds)" % int(slept))
+                # Rebuild Sunshine's capture after a real sleep regardless of the
+                # resume-Mode trigger — capture health is independent of it.
+                _spawn(_capture_rebuild_after_resume(slept))
             first = False
 
             # Collect only the baseline fields that changed, then merge them

@@ -1219,6 +1219,38 @@ def _capture_restart(success_msg):
     return {"ok": True, "healed": True, "message": success_msg}
 
 
+def sunshine_display_lit():
+    """True if a display is currently lit (a connector connected+enabled+On) —
+    used to wait for the panel to come back after resume before rebuilding
+    capture."""
+    return sunshine.display_active() is True
+
+
+def rebuild_capture_after_resume():
+    """Proactively rebuild Sunshine's capture pipeline after resume-from-sleep so
+    the first post-resume connect already works. Resume reinitializes the display
+    (gamescope atoms reset, the panel re-trains) but usually keeps the SAME
+    connector set — so neither the reactive log check nor the topology detector
+    would fire, yet Sunshine's once-at-launch capture pipeline can be stale. Same
+    guards + shared cooldown as ensure_capture_healthy() so the periodic watchdog
+    won't also restart. Returns a status dict, or None when not applicable."""
+    global _capture_last_heal, _capture_unhealthy_streak, _capture_failed_heals
+    global _last_active_outputs
+    if resolved_engine() != "integrated" or not sunshine.is_installed():
+        return None
+    if _sunshine_user_stopped or not in_game_mode() or not sunshine.is_running():
+        return None
+    if sunshine.is_streaming() or sunshine.display_active() is False:
+        return None
+    if (time.monotonic() - _capture_last_heal) < _CAPTURE_COOLDOWN:
+        return None  # a heal just ran; don't pile on
+    _capture_last_heal = time.monotonic()
+    _capture_unhealthy_streak = 0
+    _capture_failed_heals = 0
+    _last_active_outputs = sunshine.active_outputs()  # rebaseline; avoid double-fire
+    return _capture_restart("rebuilt capture after resume")
+
+
 def ensure_mdns():
     """Keep Moonlight able to discover Sunshine. SteamOS ships avahi in
     resolve-only mode and re-disables publishing on updates, which silently

@@ -15,9 +15,9 @@ All notable changes to Docky are documented here. This project adheres to
   **resume-from-sleep**, or a **dock/undock** that swapped the active display. The
   existing watchdog only caught crashes (the process here is alive), so this could
   sit broken until noticed. Docky now judges capture health from Sunshine's own
-  probe verdict and, on either a definitive capture failure or a display-topology
-  change (dock/undock), restarts Sunshine to rebuild the pipeline against the
-  current display — typically within ~15 seconds. Heavily guarded: only in Game
+  probe verdict and, on a definitive capture failure, a display-topology change
+  (dock/undock), or resume-from-sleep, restarts Sunshine to rebuild the pipeline
+  against the current display — typically within ~15 seconds. Heavily guarded: only in Game
   Mode, debounced, rate-limited, capped so an unfixable failure can't thrash, gated
   on a display actually being lit, and it never interrupts a live stream.
 - **`capture = kms` is now ensured on every Sunshine start.** Launched as root in

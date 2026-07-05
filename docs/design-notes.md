@@ -142,10 +142,12 @@ or encoder` (the 503). `capture_healthy()` returns the most recent verdict (or
 `None` when unknown), keying strictly off those lines and **not** the benign
 `Encoder [x] failed` auto-detect noise Sunshine itself says to ignore. The heal is
 a restart — the same "only Sunshine can rebuild its own state" logic as the
-discovery heal — triggered either reactively (a definitive failing verdict) or
-proactively (the active display topology changed; fingerprinted on
+discovery heal — triggered reactively (a definitive failing verdict) or
+proactively: either the active display topology changed (fingerprinted on
 connected+enabled connectors, **not** dpms, so a dock/undock triggers it but a
-screen merely sleeping does not). It's guarded like the others — Game Mode only,
+screen merely sleeping does not), or a resume-from-sleep reinitialized the display
+without necessarily changing the connector set (rebuilt once the panel is back up).
+It's guarded like the others — Game Mode only,
 never mid-stream (`is_streaming()`), debounced over consecutive reads, rate-limited
 by a cooldown, gated on a display actually being lit (`display_active()` — a
 restart into a dark panel would just fail again), and **capped** so a genuinely
