@@ -100,14 +100,29 @@ shows `kwin_wayland_drm: Failed to open /dev/dri/card0 device (Device or resourc
 busy)` — so Plasma never starts and SteamOS drops you back to Game Mode.
 
 **Docky handles this automatically.** When it detects you've left Game Mode
-(gamescope is no longer the compositor) it releases the GPU by stopping Sunshine,
-and it restarts Sunshine when you return to Game Mode — so Desktop and Moonlight
-both just work. It never stops Sunshine mid-stream or while Game Mode is running.
+(gamescope is no longer the compositor) it releases the GPU by immediately
+SIGKILLing Sunshine, and it restarts Sunshine only once you're back in a *stable*
+Game Mode — so Desktop and Moonlight both just work. It never stops Sunshine
+mid-stream or while Game Mode is running.
 
-- If a switch ever still bounces (e.g. a very fast machine wins the race), just
-  try again, or stop Sunshine first from the panel (Sunshine → Stop).
+Two safeguards make the switch reliable even when it used to bounce (fixed in
+1.4.3):
+- **Definitive Desktop latch.** As soon as a Plasma session appears
+  (`kwin_wayland`/`plasmashell`), Docky keeps Sunshine off no matter what — a
+  gamescope process that flickers during the handoff can't revive it against the
+  desktop.
+- **Start debounce.** Sunshine is only (re)started after gamescope has been up
+  continuously for a few seconds. A bouncing switch makes gamescope flicker in and
+  out as it repeatedly fails to grab the GPU (Sunshine still holds it); the
+  debounce stops Docky from restarting Sunshine on each flicker, which used to
+  perpetuate the bounce.
+
 - Sunshine (Game-Mode streaming) and the KDE desktop fundamentally contend for the
   GPU, so they can't both own it at once — only one runs at a time by design.
+- Manual escape hatch if you ever get wedged: from an SSH/terminal,
+  `sudo systemctl stop plugin_loader` (halts Docky so it can't respawn Sunshine),
+  `sudo pkill -x sunshine`, then `steamos-session-select plasma-wayland`. Restart
+  Decky with `sudo systemctl start plugin_loader` when you go back to Game Mode.
 
 ## Reset to a clean slate
 - Config lives in `~/.config/docky/`. Remove `config.json` (and `state.json`) to

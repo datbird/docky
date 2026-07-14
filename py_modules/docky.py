@@ -892,7 +892,7 @@ def autostart_sunshine():
         return False, True, "autostart disabled"
     if not sunshine.is_installed():
         return False, True, "Sunshine not installed"
-    if not in_game_mode():
+    if desktop_session_active() or not in_game_mode():
         return False, True, "not in Game Mode; leaving Sunshine off so KDE Desktop can use the GPU"
     global _sunshine_user_stopped
     ok, msg = sunshine.start()
@@ -1063,27 +1063,68 @@ def in_game_mode():
     return _proc_x("gamescope-wl") or _proc_x("gamescope")
 
 
+def desktop_session_active():
+    """True if a KDE Plasma / KWin desktop session is present (or coming up). This is
+    the DEFINITIVE 'we are in Desktop Mode' signal: when it's true Sunshine must stay
+    off so KWin keeps the GPU, regardless of any transient gamescope process during
+    the session handoff. Never true in Game Mode (no kwin_wayland/plasmashell there)."""
+    return _proc_x("kwin_wayland") or _proc_x("plasmashell")
+
+
+# Hysteresis for STARTING Sunshine. Stopping is always immediate (free the GPU fast);
+# starting waits until Game Mode has been continuously up for a few seconds. Without
+# this, a switch-to-Desktop that BOUNCES makes gamescope flicker in and out — it keeps
+# trying and failing to grab the GPU because Sunshine still holds it — and each flicker
+# read as "in_game_mode" would restart Sunshine mid-handoff, re-grabbing the GPU and
+# perpetuating the bounce forever. The debounce lets gamescope (or KWin) win the GPU
+# before Sunshine is allowed back.
+_game_mode_stable_since = None   # monotonic time gamescope became continuously present
+_GAME_MODE_STABLE_SECS = 5.0     # gamescope must be up this long before Sunshine returns
+
+
+def stable_game_mode():
+    """in_game_mode(), debounced and desktop-vetoed — the gate for (re)STARTING
+    Sunshine. False whenever a desktop session is present, whenever gamescope is gone,
+    or until gamescope has been continuously up for _GAME_MODE_STABLE_SECS. Called from
+    the 2s coexist loop and the 6s keep-alive loop; a benign GIL-safe race on the
+    timestamp only shifts the effective threshold by a tick."""
+    global _game_mode_stable_since
+    if desktop_session_active() or not in_game_mode():
+        _game_mode_stable_since = None
+        return False
+    now = time.monotonic()
+    if _game_mode_stable_since is None:
+        _game_mode_stable_since = now
+        return False
+    return (now - _game_mode_stable_since) >= _GAME_MODE_STABLE_SECS
+
+
 def sunshine_coexist_tick():
-    """One tick of the Sunshine⇄Desktop GPU coexistence loop. The reliable signal is
-    `in_game_mode()`: whenever gamescope is NOT the active compositor, a Desktop
-    session is starting/up (or Game Mode is down), so release the GPU by stopping
-    Sunshine; in Game Mode, (re)start it. Keying off gamescope-gone — rather than
-    trying to *detect* Plasma — means we NEVER stop Sunshine while Game Mode is up
-    (which would break Moonlight), and we free the GPU the moment the switch begins,
-    before KWin reaches for DRM master. Never interrupts a live stream; the stop does
-    NOT set the user-stopped flag, so Sunshine auto-returns in Game Mode. Returns a
-    status string when it acted."""
+    """One tick of the Sunshine⇄Desktop GPU coexistence loop.
+
+    STOP (immediate): whenever a Desktop session is present OR gamescope is gone, a
+    Plasma session is starting/up (or Game Mode is down), so release the GPU by
+    SIGKILLing Sunshine. Checking desktop_session_active() as well as gamescope-gone
+    latches us to "hands off" the moment KWin/plasmashell appears, so a gamescope
+    process that flickers during the handoff can't keep Sunshine alive against the
+    desktop. The force_stop does NOT set the user-stopped flag, so Sunshine auto-returns
+    in Game Mode. Never interrupts a live stream.
+
+    START (debounced): only once stable_game_mode() holds — gamescope continuously up
+    for a few seconds with no desktop — so a bouncing switch-to-Desktop never restarts
+    Sunshine mid-transition and re-triggers the bounce. Returns a status string when it
+    acted."""
     if resolved_engine() != "integrated" or not sunshine.is_installed():
         return None
-    if not in_game_mode():
+    if desktop_session_active() or not in_game_mode():
         # Desktop is (about to be) up — free the GPU for KWin.
         if sunshine.is_running() and not sunshine.is_streaming():
             # Fast SIGKILL: the GPU must free within a couple of seconds for KWin.
             # Low-level, so it does NOT set the user-stopped flag.
             ok, _ = sunshine.force_stop()
-            return "stopped Sunshine — not in Game Mode (freeing GPU for Desktop)" if ok else None
+            return "stopped Sunshine — Desktop Mode / not Game Mode (freeing GPU)" if ok else None
         return None
-    # Game Mode: (re)start Sunshine if it should be running.
+    # Game Mode: (re)start Sunshine if it should be running (and Game Mode is stable).
     if sunshine_should_autorestart():
         ok, _ = sunshine.start()
         if ok:
@@ -1094,8 +1135,9 @@ def sunshine_coexist_tick():
 
 def sunshine_should_autorestart():
     """True when Docky should (re)launch Sunshine: watchdog enabled, engine
-    integrated, installed, the user didn't stop it, we're in Game Mode (Desktop
-    needs the GPU), and it isn't already running."""
+    integrated, installed, the user didn't stop it, Game Mode is STABLY up (no desktop
+    session, gamescope continuously present for a few seconds — Desktop needs the GPU
+    and a bouncing switch must not trigger a restart), and it isn't already running."""
     cfg = load_config()
     if not cfg["settings"].get("sunshineWatchdog"):
         return False
@@ -1105,7 +1147,7 @@ def sunshine_should_autorestart():
         return False
     if not sunshine.is_installed():
         return False
-    if not in_game_mode():
+    if not stable_game_mode():
         return False
     return not sunshine.is_running()
 

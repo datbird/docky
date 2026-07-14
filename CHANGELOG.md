@@ -3,6 +3,27 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.3] — 2026-07-14
+
+### Fixed
+- **Switching to Desktop Mode no longer bounces back to Game Mode when Sunshine is
+  running.** The GPU-coexistence logic keyed purely off gamescope being gone: it
+  freed the GPU when gamescope exited but restarted Sunshine the instant gamescope
+  reappeared. During a switch-to-Desktop that lost the race, gamescope *flickers* —
+  it repeatedly tries and fails to grab `/dev/dri/card0` because Sunshine still
+  holds it — and each flicker was read as "back in Game Mode," so Docky relaunched
+  Sunshine mid-handoff, re-grabbed the GPU, and perpetuated the bounce (the desktop
+  never stayed up, so remote RDP into the desktop was impossible). Two safeguards
+  now break the oscillation:
+  - **Definitive Desktop latch** — the moment a Plasma session appears
+    (`kwin_wayland`/`plasmashell`), Sunshine is kept off regardless of any transient
+    gamescope process, so the desktop keeps the GPU through the handoff.
+  - **Start debounce** — Sunshine is only (re)started once gamescope has been
+    continuously up for a few seconds (`stable_game_mode()`); stopping stays
+    immediate. A flickering, bouncing transition therefore never restarts Sunshine.
+  Stopping Sunshine to free the GPU is still an instant SIGKILL and still never
+  interrupts a live stream or a stable Game-Mode session.
+
 ## [1.4.2] — 2026-07-05
 
 ### Fixed
