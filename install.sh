@@ -26,6 +26,17 @@ done
 chown -R root:root "$DEST"
 chmod -R go+rX "$DEST"
 
+# --- Desktop-session assets (run in the KDE session, NOT inside the plugin sandbox) ---
+# Steam's desktop autostart (/etc/xdg/autostart/steam.desktop) races Xwayland on a fresh
+# RDP login and errors "Unable to open a connection to X". Ship a user-level override that
+# routes Steam's autostart through a wrapper which waits for X first. Owned by `deck`, not
+# root, since they live in the user's home. See docs/sunshine.md.
+DECK_HOME="/home/deck"
+install -d -o deck -g deck "$DECK_HOME/.local/bin" "$DECK_HOME/.config/autostart"
+install -o deck -g deck -m 0755 "$SRC/assets/steam-wait-x.sh"         "$DECK_HOME/.local/bin/steam-wait-x.sh"
+install -o deck -g deck -m 0644 "$SRC/assets/steam-autostart.desktop" "$DECK_HOME/.config/autostart/steam.desktop"
+echo "Installed Steam autostart X-wait fix (~/.local/bin/steam-wait-x.sh, ~/.config/autostart/steam.desktop)."
+
 echo "Restarting Decky plugin loader..."
 systemctl restart plugin_loader.service
 echo "Done. Game Mode -> Quick Access -> Decky -> 'Docky'."

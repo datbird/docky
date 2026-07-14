@@ -124,6 +124,28 @@ Two safeguards make the switch reliable even when it used to bounce (fixed in
   `sudo pkill -x sunshine`, then `steamos-session-select plasma-wayland`. Restart
   Decky with `sudo systemctl start plugin_loader` when you go back to Game Mode.
 
+## Steam pops "Unable to open a connection to X" after switching to Desktop
+Seen on a fresh Desktop-Mode login, typically over RDP: a Steam dialog reading
+"Unable to open a connection to X … make sure that you have enabled X"
+(support ref `4050-WOJB-0608`). This is **not** a Docky/Sunshine fault and the
+desktop is otherwise fine — it's a startup race. SteamOS autostarts the Steam
+client in Desktop Mode (`/etc/xdg/autostart/steam.desktop`); when the Plasma
+Wayland session is created fresh (as it is when you switch to Desktop over a
+remote KRDP connection), Steam can launch a moment before Xwayland/`DISPLAY` is
+answerable, lose the race, and error out. Locally you rarely see it because X is
+already up by the time autostart fires.
+
+**Docky's installer fixes this** by deploying a user-level autostart override
+(`~/.config/autostart/steam.desktop`, which takes precedence over the read-only
+system copy) that runs Steam through `~/.local/bin/steam-wait-x.sh`. The wrapper
+polls `xdpyinfo` until X answers (30 s ceiling), then launches `steam -silent`
+as normal — so Steam waits for the display instead of racing it. It only affects
+Steam's *autostart*; the app-menu launcher and Game Mode are untouched.
+- Already got the dialog? Just click **OK** — it's harmless, and the fix applies
+  to the *next* login. To relaunch Steam now, start it from the app menu.
+- To revert: `rm ~/.config/autostart/steam.desktop` (the stock system autostart
+  resumes), or run `uninstall.sh`.
+
 ## Reset to a clean slate
 - Config lives in `~/.config/docky/`. Remove `config.json` (and `state.json`) to
   start fresh; they're recreated empty on next load. Uninstalling the plugin does

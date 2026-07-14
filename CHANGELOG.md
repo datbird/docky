@@ -3,6 +3,23 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.4] — 2026-07-14
+
+### Added
+- **Steam no longer errors "Unable to open a connection to X" on a fresh Desktop-Mode
+  login over RDP.** SteamOS autostarts the Steam client in Desktop Mode via
+  `/etc/xdg/autostart/steam.desktop`. When the KDE Plasma (Wayland) session is spun up
+  fresh — e.g. by switching to Desktop over a remote KRDP connection — Steam can launch
+  before Xwayland/`DISPLAY` is answerable, lose the race, and pop its
+  `4050-WOJB-0608` error dialog. `install.sh` now deploys a user-level autostart
+  override (`~/.config/autostart/steam.desktop`, which wins over the read-only system
+  copy) that routes Steam through `~/.local/bin/steam-wait-x.sh` — a wrapper that polls
+  until X actually answers (30 s ceiling) before launching `steam -silent`. This
+  complements the Desktop⇄Game GPU handoff (v1.4.3): the switch itself is already clean,
+  and now the desktop that comes up doesn't greet you with a Steam error. Purely a
+  desktop-session convenience; it does not touch Game Mode, the app-menu launcher, or
+  the plugin runtime. Remove with `uninstall.sh` or `rm ~/.config/autostart/steam.desktop`.
+
 ## [1.4.3] — 2026-07-14
 
 ### Fixed
