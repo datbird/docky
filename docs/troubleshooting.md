@@ -119,6 +119,8 @@ Two safeguards make the switch reliable even when it used to bounce (fixed in
 
 - Sunshine (Game-Mode streaming) and the KDE desktop fundamentally contend for the
   GPU, so they can't both own it at once — only one runs at a time by design.
+  For *why* this is and how the whole Game-Mode ⇄ Desktop handoff works, see
+  [Streaming ⇄ Desktop](gpu-coexistence.md).
 - Manual escape hatch if you ever get wedged: from an SSH/terminal,
   `sudo systemctl stop plugin_loader` (halts Docky so it can't respawn Sunshine),
   `sudo pkill -x sunshine`, then `steamos-session-select plasma-wayland`. Restart
@@ -145,6 +147,8 @@ Steam's *autostart*; the app-menu launcher and Game Mode are untouched.
   to the *next* login. To relaunch Steam now, start it from the app menu.
 - To revert: `rm ~/.config/autostart/steam.desktop` (the stock system autostart
   resumes), or run `uninstall.sh`.
+- This is the same Game-Mode ⇄ Desktop-over-RDP flow the GPU handoff enables — see
+  [Streaming ⇄ Desktop](gpu-coexistence.md) for how the two fit together.
 
 ## Reset to a clean slate
 - Config lives in `~/.config/docky/`. Remove `config.json` (and `state.json`) to

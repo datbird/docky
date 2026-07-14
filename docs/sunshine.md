@@ -6,6 +6,12 @@ LizardByte game-streaming host — from Game Mode, or defer to the
 it. Both manage the **same** Sunshine flatpak (`dev.lizardbyte.app.Sunshine`),
 which is why Docky's non-launch tasks work either way.
 
+> **Streaming and Desktop Mode share one GPU.** Sunshine's screen capture and the
+> KDE desktop can't both own the GPU, so Docky hands it off automatically when you
+> switch between Game Mode and Desktop (RDP). That's why Moonlight comes back on
+> its own after you leave the desktop. See
+> [Streaming ⇄ Desktop](gpu-coexistence.md).
+
 ## Engine selection
 
 <p align="center"><img src="images/editor-sunshine.png" alt="Docky Sunshine tab" width="420"></p>

@@ -169,6 +169,28 @@ reads the **live** atom, so it reflects reality even when Steam's own Display→
 setting is what's driving (or not driving) it — a toggle that showed the persisted
 pref would lie when Steam HDR is off.
 
+### Streaming and the desktop can't share the GPU, so Docky hands it off
+Sunshine's `capture=kms` and KWin (the KDE desktop compositor) both need
+exclusive DRM-master on `/dev/dri/card0`, and only one process can hold it. They
+therefore can't run at once — the issue is the **handoff** between Game Mode
+(Sunshine) and Desktop Mode (KWin, which is what RDP shows). A 2 s coexistence
+loop frees the GPU by **SIGKILLing Sunshine the instant gamescope stops being the
+compositor** (fast, because KWin's DRM-master retry window is only a few seconds),
+keeps Sunshine off while a Plasma session exists (the Desktop *latch*), and
+restarts Sunshine only once gamescope is **stably** back (a *debounce*, so a
+flickering/bouncing transition can't restart it mid-handoff). **Why key off
+gamescope-gone rather than detecting Plasma:** it makes "stop Sunshine" impossible
+while Game Mode is up, so a missed detection leaves Moonlight working instead of
+killing a stream — the safe failure direction. **Why not share the GPU:** DRM
+master is exclusive; there is no share option. The related **Steam autostart
+wrapper** (a `~/.config/autostart/steam.desktop` override → `steam-wait-x.sh`)
+solves a *different* race in the same Desktop-over-RDP flow — Steam autostarting
+before Xwayland is ready — and is deployed by `install.sh` rather than baked into
+the plugin runtime because it's a desktop-session concern, not Game-Mode logic.
+The desktop's own side (krdpserver listening on 3389, the KRDP watchdog) is
+deliberately **outside** Docky. Full narrative:
+[Streaming ⇄ Desktop](gpu-coexistence.md).
+
 ## Frontend
 
 ### The editor deep-clones the whole config on each edit

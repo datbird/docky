@@ -134,6 +134,7 @@ Dock the Deck and the `Docked` mode runs automatically. Pin either mode as a
 | [Performance](docs/performance.md) | Fan curve/manual, TDP cap + enforcement, profiles |
 | [Triggers](docs/triggers.md) | All triggers, dock detection, mode mapping |
 | [Sunshine](docs/sunshine.md) | Engine selection, install/update, pairing, encoder, composition, HDR, watchdog & discovery |
+| [Streaming ⇄ Desktop](docs/gpu-coexistence.md) | Why Moonlight (Sunshine) and Desktop-Mode RDP share one GPU, and how the handoff + Steam wrapper let you move between them |
 | [Configuration](docs/configuration.md) | `config.json` / `state.json` reference |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
 | [Design notes](docs/design-notes.md) | Accepted trade-offs & known limitations, with rationale |
