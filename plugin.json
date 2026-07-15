@@ -3,6 +3,7 @@
   "version": "1.4.4",
   "author": "datbird",
   "flags": ["root"],
+  "api_version": 1,
   "publish": {
     "tags": ["dock", "automation", "sunshine", "streaming", "triggers"],
     "description": "Steam Deck automation: run Tasks → Actions → Modes on triggers (dock/undock, AC power, controller connect, resume, startup). Built-in fixes for docked audio, controller order, composition/stretch, and TDP, plus full Sunshine streaming control (integrated or via decky-sunshine).",
