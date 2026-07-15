@@ -99,16 +99,34 @@ Trigger— an event (dock/undock, AC, controller, resume, startup) → a Mode
 
 ## Install
 
+Decky Loader must already be installed. Do this from Game Mode.
+
+### Install from URL (easiest — good for testing)
+
+In Decky: **gear** (Settings) → turn on **Developer mode** → the **Developer**
+section → **Install Plugin from URL**, and paste:
+
+```
+https://github.com/datbird/docky/releases/latest/download/Docky.zip
+```
+
+That link always points at the newest release, so it stays current. No terminal,
+no toolchain.
+
+### Install from source
+
 ```bash
 git clone https://github.com/datbird/docky.git
 cd docky
 sudo ./install.sh
 ```
 
-Then: Game Mode → Quick Access (•••) → Decky → **Docky**. Re-run `install.sh` to
-update; `./uninstall.sh` to remove (your config is preserved). The frontend
-bundle (`dist/index.js`) is committed, so a fresh clone needs **no Node
-toolchain** to install. Decky Loader must already be installed.
+Re-run `install.sh` to update; `./uninstall.sh` to remove (your config is
+preserved). The frontend bundle (`dist/index.js`) is committed, so a fresh clone
+needs **no Node toolchain**. This path also installs the Desktop-Mode Steam
+autostart fix (see [Sunshine](docs/sunshine.md)), which the URL install does not.
+
+Then: Game Mode → Quick Access (•••) → Decky → **Docky**.
 
 ## Quick start — a docked/handheld setup
 
