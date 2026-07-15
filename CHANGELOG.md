@@ -6,6 +6,11 @@ All notable changes to Docky are documented here. This project adheres to
 ## [1.4.5] — 2026-07-15
 
 ### Fixed
+- **Restored frontend↔backend communication.** `plugin.json` briefly carried
+  `api_version: 1`, but Docky's UI uses `decky-frontend-lib`'s legacy
+  `callPluginMethod`, which Decky rejects when `api_version > 0` ("Legacy methods
+  may not be used on api_version > 0") — breaking every panel call. The key is now
+  removed (absent = legacy = correct). See `docs/development.md`.
 - **Fan never left unmanaged if a target write fails.** `write_fan_rpm` used to stop
   SteamOS's `jupiter-fan-control` and then write `fan1_target`; if that write failed
   after the daemon was already stopped, the fan could be left frozen with nothing
