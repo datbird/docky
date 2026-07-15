@@ -99,7 +99,9 @@ Trigger— an event (dock/undock, AC, controller, resume, startup) → a Mode
 
 ## Install
 
-Decky Loader must already be installed. Do this from Game Mode.
+Docky isn't on the Decky store yet, so it installs manually — either from the
+release URL or from source below. Decky Loader must already be installed, and do
+this from Game Mode.
 
 ### Install from URL (easiest — good for testing)
 
