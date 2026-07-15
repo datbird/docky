@@ -3,6 +3,26 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.5] — 2026-07-15
+
+### Fixed
+- **Fan never left unmanaged if a target write fails.** `write_fan_rpm` used to stop
+  SteamOS's `jupiter-fan-control` and then write `fan1_target`; if that write failed
+  after the daemon was already stopped, the fan could be left frozen with nothing
+  managing it. It now restarts the daemon on a failed write so the Deck keeps cooling
+  itself.
+- **Steppers no longer drop gamepad focus mid-press.** The +/− buttons in every fan/TDP
+  stepper were built from a component defined inline on each render, so React remounted
+  them on every value change and GamepadUI lost focus — making rapid stepping jittery.
+  They now keep a stable element type. Same fix applied to the fan mode buttons.
+- **Manual TDP display no longer lies after Apply.** The panel kept showing the pending
+  draft wattage after a manual "Apply", so a value the hardware clamped (or an external
+  change) wasn't reflected; the draft is now cleared so the live hardware value shows.
+- **Fan curves can't be saved degenerate.** Duplicate-temperature points are collapsed
+  before a curve is applied/saved, "Save & apply curve" requires at least two points,
+  and "+ Add point" stops stacking duplicates once the max temperature is reached.
+  Hardened the curve graph against a zero max-RPM divisor.
+
 ## [1.4.4] — 2026-07-14
 
 ### Added

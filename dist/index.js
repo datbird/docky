@@ -109,16 +109,20 @@
     // with React #130). Optional `coarse` adds «/» buttons for big jumps.
     const Stepper = ({ label, value, min, max, step, coarse, unit, disabled, onChange }) => {
         const clamp = (v) => Math.max(min, Math.min(max, v));
-        const Btn = ({ delta, txt }) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: disabled || (delta < 0 ? value <= min : value >= max), onClick: () => onChange(clamp(value + delta)), style: { minWidth: 0, flex: 1, padding: "6px 4px", textAlign: "center" } }, txt));
+        // A plain render helper, NOT an inline component. Defining a component inside
+        // Stepper would give it a new type identity every render, so React would
+        // unmount/remount the buttons on each value change and GamepadUI would drop
+        // focus mid-press. Returning <DialogButton> elements keeps the type stable.
+        const btn = (delta, txt) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: disabled || (delta < 0 ? value <= min : value >= max), onClick: () => onChange(clamp(value + delta)), style: { minWidth: 0, flex: 1, padding: "6px 4px", textAlign: "center" } }, txt));
         return (window.SP_REACT.createElement(deckyFrontendLib.Field, { label: label, childrenLayout: "below", bottomSeparator: "none" },
             window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "6px", alignItems: "center" } },
-                coarse ? window.SP_REACT.createElement(Btn, { delta: -coarse, txt: "\u00AB" }) : null,
-                window.SP_REACT.createElement(Btn, { delta: -step, txt: "\u2212" }),
+                coarse ? btn(-coarse, "«") : null,
+                btn(-step, "−"),
                 window.SP_REACT.createElement("div", { style: { flex: 1.6, textAlign: "center", fontWeight: 600 } },
                     value,
                     unit || ""),
-                window.SP_REACT.createElement(Btn, { delta: step, txt: "+" }),
-                coarse ? window.SP_REACT.createElement(Btn, { delta: coarse, txt: "\u00BB" }) : null)));
+                btn(step, "+"),
+                coarse ? btn(coarse, "»") : null)));
     };
 
     // Built-in task types. The PCSX2 controller-profile task is the marquee one;
@@ -388,6 +392,15 @@
     function sortPoints(pts) {
         return [...pts].sort((a, b) => a.temp - b.temp);
     }
+    // Sort and collapse duplicate temperatures (last one wins) so the curve the
+    // backend receives never has two points at the same temp (a zero-width segment).
+    // Use this when persisting/applying a curve, not while editing.
+    function normalizePoints(pts) {
+        const byTemp = new Map();
+        for (const p of sortPoints(pts))
+            byTemp.set(p.temp, p);
+        return Array.from(byTemp.values()).sort((a, b) => a.temp - b.temp);
+    }
     // Read-only SVG plot of the curve with an optional live marker at the current
     // temperature (green dashed line).
     const CurveGraph = ({ points, maxRpm, tempC, }) => {
@@ -395,7 +408,7 @@
         const H = 130;
         const padL = 4, padR = 4, padT = 6, padB = 6;
         const x = (t) => padL + ((t - T_MIN) / (T_MAX - T_MIN)) * (W - padL - padR);
-        const y = (r) => padT + (1 - r / maxRpm) * (H - padT - padB);
+        const y = (r) => padT + (1 - r / Math.max(1, maxRpm)) * (H - padT - padB);
         const pts = sortPoints(points);
         const line = pts.map((p) => `${x(p.temp).toFixed(1)},${y(p.rpm).toFixed(1)}`).join(" ");
         const haveTemp = typeof tempC === "number";
@@ -419,14 +432,19 @@
             const sorted = sortPoints(points);
             const last = sorted[sorted.length - 1];
             const temp = last ? Math.min(T_MAX, last.temp + 10) : 60;
+            // Already at the max temperature — adding here would stack a duplicate temp
+            // (a degenerate curve point). Bail instead; the add button is also disabled.
+            if (last && temp <= last.temp)
+                return;
             const rpm = last ? Math.min(maxRpm, last.rpm + 1000) : 3000;
             onPoints([...points, { temp, rpm }]);
         }
+        const atMaxTemp = points.length > 0 && Math.max(...points.map((p) => p.temp)) >= T_MAX;
         return (window.SP_REACT.createElement("div", null,
             window.SP_REACT.createElement(CurveGraph, { points: points, maxRpm: maxRpm, tempC: tempC }),
             window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Smooth (interpolate between points)", checked: interpolate, onChange: onInterpolate }),
             window.SP_REACT.createElement("div", { style: { fontWeight: 600, margin: "8px 0 2px" } }, "Curve points"),
-            points.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6, margin: "4px 0" } }, "No points yet \u2014 add at least two.")) : null,
+            points.length < 2 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6, margin: "4px 0" } }, "Add at least two points to define a curve.")) : null,
             points.map((p, i) => (window.SP_REACT.createElement("div", { key: i, style: {
                     border: "1px solid rgba(255,255,255,0.12)",
                     borderRadius: "6px",
@@ -438,7 +456,7 @@
                 window.SP_REACT.createElement(Stepper, { label: "Fan RPM", value: p.rpm, min: 0, max: maxRpm, step: 100, coarse: 1000, disabled: busy, onChange: (v) => setPoint(i, "rpm", v) }),
                 window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { style: { marginTop: "4px" }, disabled: busy, onClick: () => removePoint(i) }, "Remove point")))),
             window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px", marginTop: "4px" } },
-                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: addPoint }, "+ Add point"))));
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || atMaxTemp, onClick: addPoint }, "+ Add point"))));
     };
 
     // Sentinel for the top-level dropdown entry that groups the curated Docky tasks.
@@ -1129,7 +1147,7 @@
             next.settings = next.settings || {};
             next.settings.fanMode = applyMode;
             next.settings.fanManualRpm = applyRpm;
-            next.settings.fanCurve = { interpolate, points: sortPoints(points) };
+            next.settings.fanCurve = { interpolate, points: normalizePoints(points) };
             next.settings.fanProfile = ""; // manual edit, not a saved profile
             call("save_config", { config: next })
                 .then((r) => {
@@ -1186,7 +1204,7 @@
                 name,
                 mode,
                 manualRpm,
-                curve: { interpolate, points: sortPoints(points) },
+                curve: { interpolate, points: normalizePoints(points) },
             };
             call("save_config", { config: next })
                 .then((r) => {
@@ -1202,13 +1220,17 @@
             })
                 .catch((err) => { setBusy(false); setMsg("Error: " + errText(err)); });
         }
-        const ModeButton = ({ m, label }) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => pickMode(m), style: {
+        // Plain render helper (not an inline component) so the buttons keep a stable
+        // element type across renders and don't remount / drop gamepad focus.
+        const modeButton = (m, label) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => pickMode(m), style: {
                 flex: 1, minWidth: 0, padding: "8px 4px",
                 fontWeight: mode === m ? 700 : 400,
                 background: mode === m ? "rgba(91,124,240,0.35)" : "rgba(255,255,255,0.06)",
                 border: mode === m ? "1px solid #5b7cf0" : "1px solid transparent",
             } }, label));
         const unavailable = live && live.available === false;
+        // A usable curve needs at least two points at distinct temperatures.
+        const curveOk = normalizePoints(points).length >= 2;
         const profileOpts = [{ data: "", label: profiles.length ? "Apply a profile…" : "(no profiles yet)" }]
             .concat(profiles.map((p) => ({ data: p.id, label: p.name })));
         return (window.SP_REACT.createElement(deckyFrontendLib.ModalRoot, { onCancel: closeModal, onEscKeypress: closeModal },
@@ -1223,9 +1245,9 @@
             unavailable ? (window.SP_REACT.createElement("div", { style: { color: "#e8a33d", fontSize: "0.85em", marginBottom: "8px" } }, "No controllable fan found on this device.")) : null,
             profiles.length ? (window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Saved profiles", rgOptions: profileOpts, selectedOption: "", onChange: (o) => o.data && applyProfile(o.data) })) : null,
             window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "6px", margin: "8px 0 10px" } },
-                window.SP_REACT.createElement(ModeButton, { m: "auto", label: "Auto" }),
-                window.SP_REACT.createElement(ModeButton, { m: "curve", label: "Curve" }),
-                window.SP_REACT.createElement(ModeButton, { m: "manual", label: "Manual" })),
+                modeButton("auto", "Auto"),
+                modeButton("curve", "Curve"),
+                modeButton("manual", "Manual")),
             mode === "manual" ? (window.SP_REACT.createElement("div", { style: { marginBottom: "10px" } },
                 window.SP_REACT.createElement(Stepper, { label: "Manual fan speed", value: manualRpm, min: 0, max: maxRpm, step: 100, coarse: 1000, disabled: busy, onChange: (v) => { setManualRpm(v); setDirty(true); } }),
                 window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => save("manual", manualRpm) },
@@ -1234,7 +1256,7 @@
                     " RPM"))) : null,
             mode === "curve" ? (window.SP_REACT.createElement("div", null,
                 window.SP_REACT.createElement(CurveEditor, { points: points, interpolate: interpolate, maxRpm: maxRpm, tempC: live?.tempC, busy: busy, onPoints: (p) => { setPoints(p); setDirty(true); }, onInterpolate: (b) => { setInterpolate(b); setDirty(true); } }),
-                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !dirty, onClick: () => save("curve", manualRpm), style: { marginTop: "6px" } }, "Save & apply curve"))) : null,
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !dirty || !curveOk, onClick: () => save("curve", manualRpm), style: { marginTop: "6px" } }, "Save & apply curve"))) : null,
             mode === "auto" ? (window.SP_REACT.createElement("div", { style: { opacity: 0.7, fontSize: "0.85em", margin: "4px 0 10px" } }, "SteamOS controls the fan. Pick Curve or Manual to take over.")) : null,
             mode !== "auto" ? (window.SP_REACT.createElement("div", { style: { borderTop: "1px solid rgba(255,255,255,0.1)", marginTop: "8px", paddingTop: "8px" } },
                 window.SP_REACT.createElement("div", { style: { fontWeight: 600, marginBottom: "2px" } }, "Save current as a profile"),
@@ -1757,7 +1779,11 @@
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                         window.SP_REACT.createElement(Stepper, { label: "Manual TDP (W)", value: tdpDraft ?? state.tdp?.setWatts ?? 15, min: 3, max: state.tdp?.max || 15, step: 1, unit: "W", disabled: busy, onChange: (v) => setTdpDraft(v) })),
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                        window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => fanTdpCall("set_tdp_watts", { watts: tdpDraft ?? state.tdp?.setWatts ?? 15 }, "Set TDP") },
+                        window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => {
+                                const w = tdpDraft ?? state.tdp?.setWatts ?? 15;
+                                setTdpDraft(null); // let the polled hardware value drive the display again
+                                fanTdpCall("set_tdp_watts", { watts: w }, "Set TDP");
+                            } },
                             "Apply ",
                             tdpDraft ?? state.tdp?.setWatts ?? 15,
                             "W")),

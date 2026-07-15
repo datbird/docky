@@ -6,7 +6,7 @@ import {
   DropdownItem,
 } from "decky-frontend-lib";
 import { Config, CurvePoint, DockyState, FanStatus, call, clone, errText, slugify, toast, uniqueId } from "../util";
-import { CurveEditor, sortPoints } from "./CurveEditor";
+import { CurveEditor, normalizePoints } from "./CurveEditor";
 import { TextRow, Stepper } from "./inputs";
 
 type FanMode = "auto" | "manual" | "curve";
@@ -76,7 +76,7 @@ export const FanModal: VFC<{
     next.settings = next.settings || {};
     next.settings.fanMode = applyMode;
     next.settings.fanManualRpm = applyRpm;
-    next.settings.fanCurve = { interpolate, points: sortPoints(points) };
+    next.settings.fanCurve = { interpolate, points: normalizePoints(points) };
     next.settings.fanProfile = ""; // manual edit, not a saved profile
     call<any>("save_config", { config: next })
       .then((r) => {
@@ -128,7 +128,7 @@ export const FanModal: VFC<{
       name,
       mode,
       manualRpm,
-      curve: { interpolate, points: sortPoints(points) },
+      curve: { interpolate, points: normalizePoints(points) },
     };
     call<any>("save_config", { config: next })
       .then((r) => {
@@ -143,7 +143,9 @@ export const FanModal: VFC<{
       .catch((err) => { setBusy(false); setMsg("Error: " + errText(err)); });
   }
 
-  const ModeButton: VFC<{ m: FanMode; label: string }> = ({ m, label }) => (
+  // Plain render helper (not an inline component) so the buttons keep a stable
+  // element type across renders and don't remount / drop gamepad focus.
+  const modeButton = (m: FanMode, label: string) => (
     <DialogButton
       disabled={busy}
       onClick={() => pickMode(m)}
@@ -159,6 +161,8 @@ export const FanModal: VFC<{
   );
 
   const unavailable = live && live.available === false;
+  // A usable curve needs at least two points at distinct temperatures.
+  const curveOk = normalizePoints(points).length >= 2;
   const profileOpts = [{ data: "", label: profiles.length ? "Apply a profile…" : "(no profiles yet)" }]
     .concat(profiles.map((p) => ({ data: p.id, label: p.name })));
 
@@ -189,9 +193,9 @@ export const FanModal: VFC<{
       ) : null}
 
       <Focusable flow-children="horizontal" style={{ display: "flex", gap: "6px", margin: "8px 0 10px" }}>
-        <ModeButton m="auto" label="Auto" />
-        <ModeButton m="curve" label="Curve" />
-        <ModeButton m="manual" label="Manual" />
+        {modeButton("auto", "Auto")}
+        {modeButton("curve", "Curve")}
+        {modeButton("manual", "Manual")}
       </Focusable>
 
       {mode === "manual" ? (
@@ -215,7 +219,7 @@ export const FanModal: VFC<{
             onPoints={(p) => { setPoints(p); setDirty(true); }}
             onInterpolate={(b) => { setInterpolate(b); setDirty(true); }}
           />
-          <DialogButton disabled={busy || !dirty} onClick={() => save("curve", manualRpm)} style={{ marginTop: "6px" }}>
+          <DialogButton disabled={busy || !dirty || !curveOk} onClick={() => save("curve", manualRpm)} style={{ marginTop: "6px" }}>
             Save & apply curve
           </DialogButton>
         </div>

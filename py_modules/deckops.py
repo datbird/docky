@@ -414,12 +414,19 @@ def write_fan_rpm(rpm, stop_daemon=True):
     if not tgt:
         return False, "no steamdeck_hwmon fan on this device"
     r = min(r, FAN_MAX_RPM)
+    stopped = False
     if stop_daemon and jupiter_fan_active():
         _fan_service("stop")
+        stopped = True
     try:
         with open(tgt, "w") as f:
             f.write(str(r))
     except OSError as e:
+        # If we just stopped SteamOS's fan daemon, a failed target write would
+        # leave the fan unmanaged (stuck at whatever value it held). Hand it back
+        # so the Deck keeps cooling itself rather than risk a frozen fan.
+        if stopped:
+            _fan_service("restart")
         return False, "could not set fan: %s" % e
     return True, "fan target %d RPM" % r
 

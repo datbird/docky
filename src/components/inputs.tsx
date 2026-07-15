@@ -42,7 +42,11 @@ export const Stepper: VFC<{
   onChange: (v: number) => void;
 }> = ({ label, value, min, max, step, coarse, unit, disabled, onChange }) => {
   const clamp = (v: number) => Math.max(min, Math.min(max, v));
-  const Btn: VFC<{ delta: number; txt: string }> = ({ delta, txt }) => (
+  // A plain render helper, NOT an inline component. Defining a component inside
+  // Stepper would give it a new type identity every render, so React would
+  // unmount/remount the buttons on each value change and GamepadUI would drop
+  // focus mid-press. Returning <DialogButton> elements keeps the type stable.
+  const btn = (delta: number, txt: string) => (
     <DialogButton
       disabled={disabled || (delta < 0 ? value <= min : value >= max)}
       onClick={() => onChange(clamp(value + delta))}
@@ -54,14 +58,14 @@ export const Stepper: VFC<{
   return (
     <Field label={label} childrenLayout="below" bottomSeparator="none">
       <Focusable flow-children="horizontal" style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-        {coarse ? <Btn delta={-coarse} txt="«" /> : null}
-        <Btn delta={-step} txt="−" />
+        {coarse ? btn(-coarse, "«") : null}
+        {btn(-step, "−")}
         <div style={{ flex: 1.6, textAlign: "center", fontWeight: 600 }}>
           {value}
           {unit || ""}
         </div>
-        <Btn delta={step} txt="+" />
-        {coarse ? <Btn delta={coarse} txt="»" /> : null}
+        {btn(step, "+")}
+        {coarse ? btn(coarse, "»") : null}
       </Focusable>
     </Field>
   );

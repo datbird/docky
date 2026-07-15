@@ -11,6 +11,15 @@ export function sortPoints(pts: CurvePoint[]): CurvePoint[] {
   return [...pts].sort((a, b) => a.temp - b.temp);
 }
 
+// Sort and collapse duplicate temperatures (last one wins) so the curve the
+// backend receives never has two points at the same temp (a zero-width segment).
+// Use this when persisting/applying a curve, not while editing.
+export function normalizePoints(pts: CurvePoint[]): CurvePoint[] {
+  const byTemp = new Map<number, CurvePoint>();
+  for (const p of sortPoints(pts)) byTemp.set(p.temp, p);
+  return Array.from(byTemp.values()).sort((a, b) => a.temp - b.temp);
+}
+
 // Read-only SVG plot of the curve with an optional live marker at the current
 // temperature (green dashed line).
 export const CurveGraph: VFC<{ points: CurvePoint[]; maxRpm: number; tempC?: number | null }> = ({
@@ -22,7 +31,7 @@ export const CurveGraph: VFC<{ points: CurvePoint[]; maxRpm: number; tempC?: num
   const H = 130;
   const padL = 4, padR = 4, padT = 6, padB = 6;
   const x = (t: number) => padL + ((t - T_MIN) / (T_MAX - T_MIN)) * (W - padL - padR);
-  const y = (r: number) => padT + (1 - r / maxRpm) * (H - padT - padB);
+  const y = (r: number) => padT + (1 - r / Math.max(1, maxRpm)) * (H - padT - padB);
   const pts = sortPoints(points);
   const line = pts.map((p) => `${x(p.temp).toFixed(1)},${y(p.rpm).toFixed(1)}`).join(" ");
   const haveTemp = typeof tempC === "number";
@@ -68,9 +77,13 @@ export const CurveEditor: VFC<{
     const sorted = sortPoints(points);
     const last = sorted[sorted.length - 1];
     const temp = last ? Math.min(T_MAX, last.temp + 10) : 60;
+    // Already at the max temperature — adding here would stack a duplicate temp
+    // (a degenerate curve point). Bail instead; the add button is also disabled.
+    if (last && temp <= last.temp) return;
     const rpm = last ? Math.min(maxRpm, last.rpm + 1000) : 3000;
     onPoints([...points, { temp, rpm }]);
   }
+  const atMaxTemp = points.length > 0 && Math.max(...points.map((p) => p.temp)) >= T_MAX;
 
   return (
     <div>
@@ -81,8 +94,8 @@ export const CurveEditor: VFC<{
         onChange={onInterpolate}
       />
       <div style={{ fontWeight: 600, margin: "8px 0 2px" }}>Curve points</div>
-      {points.length === 0 ? (
-        <div style={{ opacity: 0.6, margin: "4px 0" }}>No points yet — add at least two.</div>
+      {points.length < 2 ? (
+        <div style={{ opacity: 0.6, margin: "4px 0" }}>Add at least two points to define a curve.</div>
       ) : null}
       {points.map((p, i) => (
         <div
@@ -105,7 +118,7 @@ export const CurveEditor: VFC<{
         </div>
       ))}
       <Focusable flow-children="horizontal" style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-        <DialogButton disabled={busy} onClick={addPoint}>+ Add point</DialogButton>
+        <DialogButton disabled={busy || atMaxTemp} onClick={addPoint}>+ Add point</DialogButton>
       </Focusable>
     </div>
   );

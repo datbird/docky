@@ -651,7 +651,11 @@ const Content: VFC = () => {
               <ButtonItem
                 layout="below"
                 disabled={busy}
-                onClick={() => fanTdpCall("set_tdp_watts", { watts: tdpDraft ?? state.tdp?.setWatts ?? 15 }, "Set TDP")}
+                onClick={() => {
+                  const w = tdpDraft ?? state.tdp?.setWatts ?? 15;
+                  setTdpDraft(null); // let the polled hardware value drive the display again
+                  fanTdpCall("set_tdp_watts", { watts: w }, "Set TDP");
+                }}
               >
                 Apply {tdpDraft ?? state.tdp?.setWatts ?? 15}W
               </ButtonItem>
