@@ -2,6 +2,11 @@
 # User override of /etc/xdg/autostart/steam.desktop (same filename wins over the read-only
 # system copy). Only change vs. system: Exec now goes through steam-wait-x.sh, which waits
 # for Xwayland/DISPLAY before launching Steam so it stops racing X on a fresh RDP login.
+# All in all this matters when the user is on KDE's built-in RDP or anything else that
+# streams the desktop: those sessions start the desktop fresh, and KDE fires autostart
+# before Xwayland is answering, so Steam loses the race. (Separate from the Sunshine
+# card0 contention that keeps the desktop from starting at all — that one is handled in
+# py_modules/docky.py.)
 Name=Steam
 Comment=Application for managing and playing games on Steam
 Exec=/home/deck/.local/bin/steam-wait-x.sh %U
