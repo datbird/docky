@@ -1,4 +1,6 @@
 #!/bin/bash
+# This is the shell script called by the custom "steam.desktop" autostart file.
+#
 # Steam autostart wrapper — wait for Xwayland/DISPLAY to be ready before launching Steam.
 # WHY: when the KDE desktop is started fresh over RDP (KRDP Wayland session), Steam's
 # autostart (/etc/xdg/autostart/steam.desktop) can fire before Xwayland/DISPLAY is up and
