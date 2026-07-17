@@ -16,9 +16,7 @@ import os
 import json
 import shutil
 import subprocess
-import tempfile
 import time
-import glob
 
 import logging
 import threading
@@ -37,12 +35,20 @@ STATE_PATH = os.path.join(CONFIG_DIR, "state.json")
 
 DEFAULT_TIMEOUT = 60
 
+# Sentinel for "never set", where None is itself a meaningful value.
+_UNSET = object()
+
 
 # ---------------- config / state ----------------
 
 def default_config():
     # Start empty — no example actions/modes. The user builds their own via the
     # editor; the add-task picker defaults to the pcsx2_profile task type.
+    #
+    # This MUST stay a function returning fresh objects. load_config() splices
+    # these values into the loaded config with setdefault(), so a module-level
+    # constant would hand every config the *same* nested dicts/lists — an edit
+    # to one config's fanCurve would then show up in the next load.
     return {
         "version": 1,
         "settings": {
@@ -109,7 +115,10 @@ def default_config():
             "fanManualRpm": 3000,
             "fanCurve": {
                 "interpolate": True,
-                "points": list(deckops.DEFAULT_FAN_CURVE),
+                # Deep copy: list() alone would share deckops' point dicts, so
+                # editing a curve point in the UI would rewrite the module-level
+                # DEFAULT_FAN_CURVE for the life of the process.
+                "points": [dict(p) for p in deckops.DEFAULT_FAN_CURVE],
             },
             "fanProfile": "",
             # --- TDP (power cap) ---
@@ -153,21 +162,46 @@ def _read_json(path, fallback):
         return fallback
 
 
+# padswap only needs re-pointing when the configured profiles dir actually
+# changes, but load_config() runs on every fan/TDP tick — so remember the last
+# value we pushed rather than re-running a side effect a few times a second.
+_padswap_dir = _UNSET
+
+
+def _sync_padswap(profiles_dir):
+    global _padswap_dir
+    if profiles_dir != _padswap_dir:
+        padswap.configure(profiles_dir)
+        _padswap_dir = profiles_dir
+
+
 def load_config():
+    """Read config.json, filling in any missing keys from default_config().
+
+    Deliberately NOT cached: every caller mutates the dict it gets back
+    (set_fan_mode, apply_tdp_profile, set_trigger, ...) and get_state() hands
+    cfg["settings"] straight to the frontend, so a shared cached object would
+    leak half-applied edits between callers. Making it safe would need a
+    deepcopy on return, which costs about as much as the page-cached read and
+    json.loads it would be replacing."""
     cfg = _read_json(CONFIG_PATH, None)
-    if cfg is None:
+    if not isinstance(cfg, dict):
+        if cfg is not None:  # parsed, but into a list/string/number
+            _log.warning("config.json is not an object; regenerating")
         cfg = default_config()
         save_config(cfg)
     # tolerate partial configs
     base = default_config()
     for k, v in base.items():
         cfg.setdefault(k, v)
+    if not isinstance(cfg.get("settings"), dict):
+        cfg["settings"] = base["settings"]
     for k, v in base["settings"].items():
         cfg["settings"].setdefault(k, v)
     # Sync padswap to the configured PCSX2 profiles folder (if overridden), so
     # every code path that loads config uses the right install location.
     ts = (cfg.get("taskSettings") or {}).get("pcsx2_profile") or {}
-    padswap.configure(ts.get("profiles_dir") or None)
+    _sync_padswap(ts.get("profiles_dir") or None)
     return cfg
 
 
@@ -178,19 +212,6 @@ def load_config():
 # can still call save_config(). Wrap multi-step updates in `with _config_lock:`.
 _config_lock = threading.RLock()
 
-
-def save_config(cfg):
-    with _config_lock:
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        tmp = CONFIG_PATH + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2)
-        os.replace(tmp, CONFIG_PATH)
-        # Keep the config user-owned/editable even though the backend runs as root.
-        _chown_to_parent(CONFIG_DIR)
-        _chown_to_parent(CONFIG_PATH)
-
-
 # state.json is read-modify-written by both the trigger watcher and frontend
 # calls (some via asyncio.to_thread, i.e. a worker thread). Serialize updates so a
 # full-object save can't clobber a field another writer just set (e.g. the watcher
@@ -198,18 +219,46 @@ def save_config(cfg):
 _state_lock = threading.Lock()
 
 
+def _write_json_atomic(path, obj):
+    """Durably replace `path` with `obj` as JSON.
+
+    os.replace() makes the *rename* atomic, but without an fsync the file's
+    contents may not have reached disk when it happens — a hard power-off (which
+    a handheld gets plenty of) can leave a zero-length or truncated config
+    behind the new name. Sync the data, then the directory entry. Saves are
+    user-initiated, never in a loop, so the cost is irrelevant."""
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    try:
+        dfd = os.open(CONFIG_DIR, os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+    except OSError:
+        pass
+    # Keep the config user-owned/editable even though the backend runs as root.
+    _chown_to_parent(CONFIG_DIR)
+    _chown_to_parent(path)
+
+
+def save_config(cfg):
+    with _config_lock:
+        _write_json_atomic(CONFIG_PATH, cfg)
+
+
 def load_state():
-    return _read_json(STATE_PATH, {})
+    st = _read_json(STATE_PATH, {})
+    return st if isinstance(st, dict) else {}
 
 
 def save_state(state):
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    tmp = STATE_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
-    os.replace(tmp, STATE_PATH)
-    _chown_to_parent(CONFIG_DIR)
-    _chown_to_parent(STATE_PATH)
+    _write_json_atomic(STATE_PATH, state)
 
 
 def update_state(**fields):
@@ -333,12 +382,10 @@ def run_task(task, allow_running_emu=True):
             args = [str(a) for a in task.get("args", [])]
             if task.get("path"):
                 argv = interp + [_p(task["path"])] + args
-                ok, msg = _run_proc(argv, cwd=task.get("cwd"),
-                                    timeout=task.get("timeout", DEFAULT_TIMEOUT))
             else:
                 argv = interp + ["-c", task.get("script", "")] + args
-                ok, msg = _run_proc(argv, cwd=task.get("cwd"),
-                                    timeout=task.get("timeout", DEFAULT_TIMEOUT))
+            ok, msg = _run_proc(argv, cwd=task.get("cwd"),
+                                timeout=task.get("timeout", DEFAULT_TIMEOUT))
             r.update(ok=ok, message=msg)
 
         elif t == "run":
@@ -475,14 +522,34 @@ def _plugins_dir():
     return os.path.expanduser("~/homebrew/plugins")
 
 
-def installed_plugins():
+# resolved_engine() defaults to "auto", which means every engine check —
+# including two per 2s coexist tick — does a listdir plus an isdir per entry.
+# Plugins can be installed at runtime, but not so fast that a few seconds of
+# staleness matters.
+_PLUGIN_TTL = 30.0
+_plugins_lock = threading.Lock()
+_plugins_cache = None
+_plugins_cache_at = -1e9
+
+
+def installed_plugins(max_age=_PLUGIN_TTL):
     """Folder names of installed Decky plugins, so task types can gate on a
-    dependency (e.g. a Sunshine task requiring the decky-sunshine plugin)."""
-    try:
-        d = _plugins_dir()
-        return sorted(n for n in os.listdir(d) if os.path.isdir(os.path.join(d, n)))
-    except OSError:
-        return []
+    dependency (e.g. a Sunshine task requiring the decky-sunshine plugin).
+    Cached for `max_age` seconds; pass 0 to force a rescan."""
+    global _plugins_cache, _plugins_cache_at
+    with _plugins_lock:
+        now = time.monotonic()
+        if _plugins_cache is not None and (now - _plugins_cache_at) < max_age:
+            return list(_plugins_cache)
+        try:
+            d = _plugins_dir()
+            found = sorted(n for n in os.listdir(d)
+                           if os.path.isdir(os.path.join(d, n)))
+        except OSError:
+            found = []
+        _plugins_cache = found
+        _plugins_cache_at = now
+        return list(found)
 
 
 # ---------------- dock / status ----------------
@@ -517,7 +584,9 @@ def suggested_mode(cfg=None, docked=None):
 
 # ---------------- fan control (Fantastic-style curve engine) ----------------
 
-def _fan_settings(cfg=None):
+def _settings(cfg=None):
+    """The settings block. (Was _fan_settings, but TDP and everything else use
+    it too — the name was lying.)"""
     return (cfg or load_config()).get("settings", {})
 
 
@@ -543,7 +612,7 @@ def fan_apply(cfg=None, ensure_stopped=True):
     in manual/curve). Writes fan1_target for manual/curve; no-op for auto.
     `ensure_stopped=False` skips the per-tick daemon probe on steady-state ticks.
     Returns {mode, owned, target, temp, ok, message}."""
-    s = _fan_settings(cfg)
+    s = _settings(cfg)
     mode, target, temp = _fan_target_for(s)
     if mode in ("manual", "curve") and target is not None:
         ok, msg = deckops.write_fan_rpm(target, stop_daemon=ensure_stopped)
@@ -556,6 +625,15 @@ def fan_apply(cfg=None, ensure_stopped=True):
 def fan_release():
     """Hand the fan back to SteamOS. Called when leaving manual/curve."""
     return deckops.restore_auto_fan()
+
+
+def _apply_or_release_fan(cfg):
+    """Apply the fan settings in `cfg` (or hand the fan back if they say auto).
+    Call OUTSIDE _config_lock — this can spend seconds in `systemctl`."""
+    if cfg["settings"].get("fanMode", "auto") == "auto":
+        return fan_release()
+    res = fan_apply(cfg)
+    return res["ok"], res["message"]
 
 
 def set_fan_mode(mode, rpm=None):
@@ -580,11 +658,7 @@ def set_fan_mode(mode, rpm=None):
         if rpm is not None:
             cfg["settings"]["fanManualRpm"] = rpm
         save_config(cfg)
-    if mode == "auto":
-        ok, msg = fan_release()
-    else:
-        res = fan_apply(cfg)
-        ok, msg = res["ok"], res["message"]
+    ok, msg = _apply_or_release_fan(cfg)
     return {"ok": ok, "message": msg, "fan": fan_status(cfg)}
 
 
@@ -592,8 +666,7 @@ def apply_fan_profile(profile_id):
     """Load a saved fan profile into the active fan settings and apply it.
     profile_id "" / "auto" returns the fan to SteamOS. Returns {ok, message, fan}."""
     if not profile_id or profile_id == "auto":
-        res = set_fan_mode("auto")
-        return res
+        return set_fan_mode("auto")
     with _config_lock:
         cfg = load_config()
         prof = (cfg.get("fanProfiles") or {}).get(profile_id)
@@ -607,19 +680,16 @@ def apply_fan_profile(profile_id):
             s["fanCurve"] = prof["curve"]
         s["fanProfile"] = profile_id
         save_config(cfg)
-    if s["fanMode"] == "auto":
-        ok, msg = fan_release()
-    else:
-        res = fan_apply(cfg)
-        ok, msg = res["ok"], res["message"]
-    return {"ok": ok, "message": "applied fan profile '%s'" % prof.get("name", profile_id)
-            if ok else msg, "fan": fan_status(cfg)}
+    ok, msg = _apply_or_release_fan(cfg)
+    if ok:
+        msg = "applied fan profile '%s'" % prof.get("name", profile_id)
+    return {"ok": ok, "message": msg, "fan": fan_status(cfg)}
 
 
 def fan_status(cfg=None):
     """Live fan state for the UI: mode, current temp/RPM, commanded target, and
     the curve settings."""
-    s = _fan_settings(cfg)
+    s = _settings(cfg)
     fc = s.get("fanCurve") or {}
     return {
         "mode": s.get("fanMode", "auto"),
@@ -629,6 +699,8 @@ def fan_status(cfg=None):
         "manualRpm": s.get("fanManualRpm", 0),
         "interpolate": fc.get("interpolate", True),
         "points": fc.get("points") or [],
+        # TODO: deckops should expose a public fan_available(); this reaches
+        # through a private to answer "is there a fan we can drive?".
         "available": deckops._fan_target_path() is not None,
         "maxRpm": deckops.FAN_MAX_RPM,
         "profile": s.get("fanProfile", ""),
@@ -641,6 +713,7 @@ def set_tdp_watts(watts, mark_manual=True):
     """Apply a TDP cap now and persist it as the active value. mark_manual clears
     the active-profile marker (a hand-set watts isn't a saved profile)."""
     ok, msg = deckops.set_tdp(watts)
+    cfg = None
     if ok:
         with _config_lock:
             cfg = load_config()
@@ -648,7 +721,7 @@ def set_tdp_watts(watts, mark_manual=True):
             if mark_manual:
                 cfg["settings"]["tdpProfile"] = ""
             save_config(cfg)
-    return {"ok": ok, "message": msg, "tdp": tdp_status()}
+    return {"ok": ok, "message": msg, "tdp": tdp_status(cfg)}
 
 
 def apply_tdp_profile(profile_id):
@@ -664,8 +737,9 @@ def apply_tdp_profile(profile_id):
             cfg["settings"]["tdpWatts"] = int(watts)  # store the validated value
             cfg["settings"]["tdpProfile"] = profile_id
             save_config(cfg)
-    return {"ok": ok, "message": "applied TDP profile '%s'" % prof.get("name", profile_id)
-            if ok else msg, "tdp": tdp_status()}
+    if ok:
+        msg = "applied TDP profile '%s'" % prof.get("name", profile_id)
+    return {"ok": ok, "message": msg, "tdp": tdp_status(cfg)}
 
 
 def set_tdp_enforce(on):
@@ -683,13 +757,18 @@ def set_tdp_enforce(on):
 
 def tdp_apply(cfg=None):
     """Re-apply the active TDP cap (called by the loop while enforcement is on)."""
-    s = _fan_settings(cfg)
-    return deckops.set_tdp(s.get("tdpWatts", 15))
+    return deckops.set_tdp(_settings(cfg).get("tdpWatts", 15))
 
 
 def release_control():
     """Disable all Docky hardware control: hand the fan back to SteamOS and lift
-    the TDP cap to its default (enforcement off). Returns {ok, message, fan, tdp}."""
+    the TDP cap to its default (enforcement off). Returns {ok, message, fan, tdp}.
+
+    Note the two separate critical sections: set_fan_mode() takes _config_lock
+    on its own, and it calls `systemctl restart` (seconds), so we deliberately
+    don't hold the lock across it. A concurrent writer can interleave between
+    the fan save and the TDP save; the worst case is a stale marker, not a
+    half-released device."""
     fan = set_fan_mode("auto")          # fanMode=auto, fanProfile="", restarts daemon
     with _config_lock:
         cfg = load_config()
@@ -700,34 +779,53 @@ def release_control():
     ok = bool(fan.get("ok", True)) and ok_t
     return {"ok": ok,
             "message": "Handed control back to SteamOS" if ok else (msg_t or fan.get("message", "")),
-            "fan": fan_status(), "tdp": tdp_status()}
+            "fan": fan_status(cfg), "tdp": tdp_status(cfg)}
 
 
 def tdp_status(cfg=None):
     """Live TDP state for the UI."""
-    s = _fan_settings(cfg)
+    s = _settings(cfg)
     info = deckops.get_tdp()
     return {
         "watts": info.get("watts"),          # current hardware cap
         "setWatts": s.get("tdpWatts", 15),   # configured/last-applied
-        "max": info.get("max", 15),
+        "max": info.get("max"),              # None when there's no cap at all
         "enforce": bool(s.get("tdpEnforce", False)),
         "profile": s.get("tdpProfile", ""),
         "available": bool(info),
     }
 
 
-def _task_bool_status(task):
+# ---------------- stateful-task status ----------------
+
+# Task types that expose a readable on/off state (a live status LED on their
+# buttons, and an On/Off/Toggle verb). Add a type here plus a reader in
+# _task_bool_status to give it both.
+_STATEFUL_TASKS = ("sunshine_composition", "sunshine_hdr", "builtin_controller")
+
+
+def _task_bool_status(task, memo=None):
     """Current on/off state of a stateful task, or None if it has no readable
-    state. Add a task type here to give it a live status LED on its buttons."""
+    state.
+
+    `memo` is a per-get_state() dict keyed by task type. Without it, every
+    favorite pinning a composition/HDR task re-reads the same gamescope atom —
+    an xprop subprocess apiece — on every UI poll, all to ask an identical
+    question with an identical answer."""
     t = task.get("type")
+    if t not in _STATEFUL_TASKS:
+        return None
+    if memo is not None and t in memo:
+        return memo[t]
     if t == "sunshine_composition":
-        return sunshine.get_composition()
-    if t == "sunshine_hdr":
-        return sunshine.get_hdr()
-    if t == "builtin_controller":
-        return deckops.builtin_controller_enabled()
-    return None
+        v = sunshine.get_composition()
+    elif t == "sunshine_hdr":
+        v = sunshine.get_hdr()
+    else:
+        v = deckops.builtin_controller_enabled()
+    if memo is not None:
+        memo[t] = v
+    return v
 
 
 def _task_mode(task):
@@ -739,17 +837,16 @@ def _task_mode(task):
 def _task_verb(task):
     """Verb describing what a stateful task does, for its button label
     ("On"/"Off"/"Toggle"), or None for non-stateful tasks."""
-    t = task.get("type")
-    if t in ("sunshine_composition", "sunshine_hdr", "builtin_controller"):
-        return {"on": "On", "off": "Off", "toggle": "Toggle"}.get(_task_mode(task), "Toggle")
-    return None
+    if task.get("type") not in _STATEFUL_TASKS:
+        return None
+    return {"on": "On", "off": "Off", "toggle": "Toggle"}.get(_task_mode(task), "Toggle")
 
 
-def _action_control(action):
+def _action_control(action, memo=None):
     """For an action's first stateful task: its live on/off status and the verb
     it performs. {status: None, verb: None} when nothing stateful."""
     for task in action.get("tasks", []):
-        s = _task_bool_status(task)
+        s = _task_bool_status(task, memo)
         if s is not None:
             return {"status": bool(s), "verb": _task_verb(task)}
     return {"status": None, "verb": None}
@@ -761,6 +858,7 @@ def _resolved_favorites(cfg):
     carry a live on/off `status` when their action has a stateful task."""
     actions = cfg.get("actions", {})
     modes = cfg.get("modes", {})
+    memo = {}  # one hardware probe per task type per call, not per favorite
     out = []
     for f in cfg.get("favorites") or []:
         if not isinstance(f, dict):
@@ -771,7 +869,7 @@ def _resolved_favorites(cfg):
             continue
         item = store.get(fid)
         name = item.get("name", fid) if item else fid
-        ctrl = (_action_control(item) if (item and kind == "action")
+        ctrl = (_action_control(item, memo) if (item and kind == "action")
                 else {"status": None, "verb": None})
         out.append({"kind": kind, "id": fid, "name": name, "missing": item is None,
                     "status": ctrl["status"], "verb": ctrl["verb"]})
@@ -824,7 +922,13 @@ _sunshine_user_stopped = False
 
 # --- Capture-health heal state (module-level; resets on plugin reload/boot) ---
 # Guards ensure_capture_healthy() against thrash when it heals the "running but
-# capture is dead" (Error 503) state.
+# capture is dead" (Error 503) state. Mutated from the periodic watcher AND from
+# the resume hook — different threads — so the cooldown's read-then-write is a
+# real race: both could pass cooldown_ok and both restart Sunshine, which is
+# exactly what the cooldown exists to prevent. _capture_lock is taken
+# non-blockingly by both entry points: if a heal is already in flight, there is
+# by definition nothing for the second caller to do.
+_capture_lock = threading.Lock()
 _capture_unhealthy_streak = 0   # consecutive definitive-unhealthy reads (debounce)
 _capture_failed_heals = 0       # consecutive heal restarts that didn't stick (cap)
 _capture_last_heal = -1e9       # monotonic time of the last heal restart (cooldown)
@@ -837,7 +941,7 @@ _CAPTURE_MAX_FAILED_HEALS = 3   # stop restarting after this many that don't fix
 
 def sunshine_engine(cfg=None):
     """The raw sunshineEngine setting ('auto' by default)."""
-    eng = ((cfg or load_config()).get("settings", {}) or {}).get("sunshineEngine")
+    eng = _settings(cfg).get("sunshineEngine")
     return eng if eng in ("auto", "integrated", DECKY_SUNSHINE, "off") else "auto"
 
 
@@ -956,9 +1060,7 @@ def sunshine_restart():
 def apply_persisted_composition(cfg=None):
     """Re-apply the saved force-composition preference to gamescope's runtime
     atom (which resets every boot/resume). Returns (ok, message)."""
-    cfg = cfg or load_config()
-    enabled = bool((cfg.get("settings") or {}).get("forceComposition"))
-    return sunshine.set_composition(enabled)
+    return sunshine.set_composition(bool(_settings(cfg).get("forceComposition")))
 
 
 def set_force_composition(enabled):
@@ -975,9 +1077,7 @@ def set_force_composition(enabled):
 def apply_persisted_hdr(cfg=None):
     """Re-apply the saved force-HDR preference to gamescope's runtime atom
     (which resets every boot). Returns (ok, message)."""
-    cfg = cfg or load_config()
-    enabled = bool((cfg.get("settings") or {}).get("forceHdr"))
-    return sunshine.set_hdr(enabled)
+    return sunshine.set_hdr(bool(_settings(cfg).get("forceHdr")))
 
 
 def set_force_hdr(enabled):
@@ -1011,7 +1111,7 @@ def ensure_gamescope_atoms():
     """
     if not in_game_mode():
         return None
-    settings = (load_config().get("settings") or {})
+    settings = _settings()
     in_sync = True
     for want, getter, setter, label in (
         (bool(settings.get("forceComposition")),
@@ -1044,31 +1144,186 @@ def set_sunshine_watchdog(enabled):
 # then bounces straight back to Game Mode. So Docky runs Sunshine ONLY in Game Mode
 # and releases the GPU the instant a Plasma session starts launching, so Moonlight
 # (Game Mode) and Desktop RDP both just work without the user juggling Sunshine.
+#
+# The comms below are compared against a process's `comm` (the kernel's 15-char
+# name), never its cmdline. That exactness is load-bearing, not incidental: this
+# Deck runs a `start-gamescope` process, so a substring or cmdline match would
+# see "gamescope" while Game Mode was up and wrongly stop Sunshine out from under
+# a live Moonlight stream. Same semantics `pgrep -x` gave us. One definition, so
+# a future SteamOS comm rename can't get fixed in only one of the two readers.
+_GAMESCOPE_COMMS = frozenset(("gamescope-wl", "gamescope"))
+_DESKTOP_COMMS = frozenset(("kwin_wayland", "plasmashell"))
 
-def _proc_x(name):
+# in_game_mode() and desktop_session_active() get asked up to four times per 2s
+# coexist tick (once by the tick, again inside the autorestart check). As four
+# `pgrep -x` fork+execs that was ~100ms of process churn every two seconds for
+# two yes/no answers. One scan of /proc/*/comm answers every such question at
+# once for ~6ms, and a sub-tick TTL collapses the repeats within a tick to a
+# single scan. (Measured on a 293-process Deck: 103ms vs 6.3ms, ~16x.)
+_PROC_TTL = 0.5
+_proc_lock = threading.Lock()
+_comm_cache = None
+_comm_cache_at = -1e9
+
+
+def _running_comms():
+    """The comm of every running process as a set — or None if /proc couldn't be
+    read and there's no cached answer. Cached for _PROC_TTL.
+
+    None means UNKNOWN, not "nothing is running". Callers must not collapse the
+    two: an empty set reads as "gamescope is gone", which would stop Sunshine and
+    yank the GPU on the strength of a failed syscall."""
+    global _comm_cache, _comm_cache_at
+    with _proc_lock:
+        now = time.monotonic()
+        if _comm_cache is not None and (now - _comm_cache_at) < _PROC_TTL:
+            return _comm_cache
+        comms = set()
+        try:
+            for entry in os.scandir("/proc"):
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    with open("/proc/%s/comm" % entry.name, encoding="utf-8",
+                              errors="replace") as f:
+                        comms.add(f.read().strip())
+                except OSError:
+                    continue  # process exited mid-scan; not our problem
+        except OSError:
+            # Don't refresh _comm_cache_at — retry on the next call. Returns the
+            # last good answer, or None (unknown) if we never had one.
+            return _comm_cache
+        _comm_cache = comms
+        _comm_cache_at = now
+        return comms
+
+
+def _comm_running(name):
     """True if a process whose exact comm is `name` is running."""
-    try:
-        return subprocess.run(["pgrep", "-x", name], stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL, env=_clean_env(),
-                              timeout=5).returncode == 0
-    except Exception:  # noqa: BLE001
-        return False
+    comms = _running_comms()
+    return bool(comms) and name in comms
 
 
 def in_game_mode():
-    """Game Mode = the gamescope compositor is up. Its comm is 'gamescope-wl' on
-    current SteamOS (accept plain 'gamescope' too). `pgrep -x` matches the exact
-    comm and never matches Docky's own process, so this can't false-positive — which
-    matters because the whole coexistence logic keys off it."""
-    return _proc_x("gamescope-wl") or _proc_x("gamescope")
+    """Game Mode = the gamescope compositor is up.
+
+    UNKNOWN (/proc unreadable) answers True. Every caller of this either stops
+    Sunshine when it's False or leaves things alone when it's True, so guessing
+    'up' means guessing 'change nothing' — we never free the GPU and kill a
+    healthy stream because a syscall failed. Same fail-safe as
+    _gamescope_alive(); the START path is gated by stable_game_mode(), which
+    refuses on unknown rather than relying on this."""
+    comms = _running_comms()
+    if comms is None:
+        return True
+    return bool(comms & _GAMESCOPE_COMMS)
 
 
 def desktop_session_active():
     """True if a KDE Plasma / KWin desktop session is present (or coming up). This is
     the DEFINITIVE 'we are in Desktop Mode' signal: when it's true Sunshine must stay
     off so KWin keeps the GPU, regardless of any transient gamescope process during
-    the session handoff. Never true in Game Mode (no kwin_wayland/plasmashell there)."""
-    return _proc_x("kwin_wayland") or _proc_x("plasmashell")
+    the session handoff. Never true in Game Mode (no kwin_wayland/plasmashell there).
+
+    UNKNOWN answers False, pairing with in_game_mode()'s True so that an
+    unreadable /proc resolves to 'leave everything exactly as it is'."""
+    comms = _running_comms()
+    if comms is None:
+        return False
+    return bool(comms & _DESKTOP_COMMS)
+
+
+# --- fast, uncached gamescope liveness (the sub-second release path) --------
+# The pid is stable for a whole Game Mode session, so pin it: the steady-state
+# check becomes ONE open() of /proc/<pid>/comm (~21us) instead of a scan that
+# short-circuits on first match but still averages half of 293 processes (~3ms).
+# At the release watcher's 4Hz that's the difference between ~12ms/sec burned
+# forever while nothing is happening and effectively nothing. Recycled pids are a
+# non-issue because the comm is re-verified on every read.
+#
+# The real answer is os.pidfd_open() on this pid + loop.add_reader(): the fd goes
+# readable the microsecond gamescope exits, giving ~0 latency and no polling in
+# either direction. Worth doing; this is the stopgap that makes the poll cheap.
+_gamescope_pid = None
+
+# Once we've confirmed gamescope is gone AND there's nothing left to release,
+# stop re-scanning at 4Hz. Sub-second freshness only matters while Sunshine is
+# holding card0; with the GPU already freed the only thing left to notice is
+# gamescope's RETURN, which the 2s coexist loop owns anyway. Bounded by the 5s
+# start debounce: Sunshine cannot hold the card again until gamescope has been
+# continuously up for _GAME_MODE_STABLE_SECS, so a window no longer than that
+# always re-arms us before there's anything to release. Without this, a Desktop
+# session pays the full ~6.3ms scan four times a second for its entire duration.
+_GAMESCOPE_GONE_TTL = 5.0
+_gamescope_gone_until = 0.0
+
+
+def _gamescope_alive():
+    """Fresh, UNCACHED check for the gamescope compositor.
+
+    The fast GPU-release watcher (sub-second) must see gamescope vanish within
+    its poll interval, but _running_comms() caches for _PROC_TTL (0.5s), which
+    can hide the transition past the ~0.3-0.5s window the desktop has before it
+    reaches for card0. So this reads /proc directly. Same exact-comm semantics as
+    in_game_mode().
+
+    On observed absence it also invalidates the comm cache and resets the
+    stability clock — see the comment at the bottom of the function."""
+    global _gamescope_pid, _game_mode_stable_since, _comm_cache
+
+    pid = _gamescope_pid
+    if pid is not None:
+        try:
+            with open("/proc/%d/comm" % pid, encoding="utf-8",
+                      errors="replace") as f:
+                if f.read().strip() in _GAMESCOPE_COMMS:
+                    return True          # the 99.9% case: one open(), ~21us
+        except OSError:
+            pass                         # exited, or the pid got recycled
+        _gamescope_pid = None
+
+    try:
+        for entry in os.scandir("/proc"):
+            if not entry.name.isdigit():
+                continue
+            try:
+                with open("/proc/%s/comm" % entry.name, encoding="utf-8",
+                          errors="replace") as f:
+                    c = f.read().strip()
+            except OSError:
+                continue  # process exited mid-scan
+            if c in _GAMESCOPE_COMMS:
+                _gamescope_pid = int(entry.name)
+                return True
+    except OSError:
+        # /proc unreadable: assume Game Mode is up so we DON'T wrongly free the
+        # GPU and kill a healthy stream. Same fail-safe as in_game_mode().
+        return True
+
+    # Gamescope is definitively gone, and we observed that FIRST-HAND. Two pieces
+    # of shared state are now known-wrong and must not be left for the slower
+    # loops to read:
+    #
+    #   _comm_cache — up to 0.5s stale and still saying gamescope is present
+    #                 (and kwin absent, since it hasn't spawned yet).
+    #   _game_mode_stable_since — set minutes ago, so stable_game_mode() would
+    #                 still report "stably up".
+    #
+    # Leave them and a coexist tick landing inside the TTL window (~25% of
+    # transitions, at 0.5s stale vs a 2s loop) reads both, skips its STOP branch,
+    # falls through to _autorestart_wanted() — watchdog on, user-stopped false
+    # because force_stop deliberately doesn't set it, stable_game_mode() true
+    # from cache, not running true because we just killed it — and starts
+    # Sunshine roughly 250ms after this tick freed card0. Inside the exact window
+    # the desktop needs. That reassembles the 25s bounce out of parts.
+    #
+    # Resetting the clock is the load-bearing half: it forces a fresh
+    # _GAME_MODE_STABLE_SECS of continuous gamescope before Sunshine can return,
+    # which is what the debounce was always documented to mean.
+    with _proc_lock:
+        _comm_cache = None
+    _game_mode_stable_since = None
+    return False
 
 
 # Hysteresis for STARTING Sunshine. Stopping is always immediate (free the GPU fast);
@@ -1085,11 +1340,20 @@ _GAME_MODE_STABLE_SECS = 5.0     # gamescope must be up this long before Sunshin
 def stable_game_mode():
     """in_game_mode(), debounced and desktop-vetoed — the gate for (re)STARTING
     Sunshine. False whenever a desktop session is present, whenever gamescope is gone,
-    or until gamescope has been continuously up for _GAME_MODE_STABLE_SECS. Called from
-    the 2s coexist loop and the 6s keep-alive loop; a benign GIL-safe race on the
-    timestamp only shifts the effective threshold by a tick."""
+    or until gamescope has been continuously up for _GAME_MODE_STABLE_SECS.
+
+    Reads one comm snapshot rather than calling in_game_mode() and
+    desktop_session_active() separately, so the two halves can't straddle a TTL
+    expiry and disagree. Unknown (/proc unreadable) is False: unlike the STOP
+    paths, STARTING on a guess is the reverse risk — it would grab card0 back.
+    Called from the 2s coexist loop, the 6s keep-alive loop, and (via the clock
+    reset in _gamescope_alive) the 0.25s release loop; a benign GIL-safe race on
+    the timestamp only delays Sunshine's return by a tick."""
     global _game_mode_stable_since
-    if desktop_session_active() or not in_game_mode():
+    comms = _running_comms()
+    if (comms is None
+            or (comms & _DESKTOP_COMMS)
+            or not (comms & _GAMESCOPE_COMMS)):
         _game_mode_stable_since = None
         return False
     now = time.monotonic()
@@ -1099,57 +1363,111 @@ def stable_game_mode():
     return (now - _game_mode_stable_since) >= _GAME_MODE_STABLE_SECS
 
 
-def sunshine_coexist_tick():
-    """One tick of the Sunshine⇄Desktop GPU coexistence loop.
+def sunshine_release_tick():
+    """Fast GPU-release check, run on the coexistence watcher's SUB-SECOND loop.
 
-    STOP (immediate): whenever a Desktop session is present OR gamescope is gone, a
-    Plasma session is starting/up (or Game Mode is down), so release the GPU by
-    SIGKILLing Sunshine. Checking desktop_session_active() as well as gamescope-gone
-    latches us to "hands off" the moment KWin/plasmashell appears, so a gamescope
-    process that flickers during the handoff can't keep Sunshine alive against the
-    desktop. The force_stop does NOT set the user-stopped flag, so Sunshine auto-returns
-    in Game Mode. Never interrupts a live stream.
+    The instant Game Mode ends (gamescope gone), SIGKILL Sunshine so /dev/dri/card0
+    frees for whatever takes the GPU next — the KDE desktop on a switch-to-Desktop,
+    or a gamescope relaunch after a crash.
+
+    UNCONDITIONAL on purpose, INCLUDING mid-stream. A Moonlight stream of a Game
+    Mode that is ending is over regardless, and Sunshine keeping card0 only
+    deadlocks the successor. Proven on-device (2026-07-17): switching to Desktop
+    while streaming bounced for ~25s because Sunshine held the GPU and the old
+    is_streaming() guard refused to stop it; freeing it within ~50ms let the
+    desktop come up cleanly and stay. That is why the release path has no stream
+    guard. Sunshine returns via the coexist autostart once Game Mode is stably
+    back. Low-level force_stop, so it does NOT set the user-stopped flag.
+
+    Runs sub-second, so BOTH steady states must stay cheap: with Game Mode up the
+    pinned-pid check short-circuits in ~21us before any config load or Sunshine
+    probe; with Game Mode down and the GPU already freed, _gamescope_gone_until
+    parks the loop instead of paying a full /proc scan 4x a second for the length
+    of a desktop session. Returns a status string only when it acts."""
+    global _gamescope_gone_until
+    now = time.monotonic()
+    if now < _gamescope_gone_until:
+        return None                       # already freed; nothing to release
+    if _gamescope_alive():
+        _gamescope_gone_until = 0.0       # Game Mode up — re-arm, cheap common case
+        return None
+    if not sunshine.is_running():
+        _gamescope_gone_until = now + _GAMESCOPE_GONE_TTL
+        return None                       # nothing holding the GPU
+    if resolved_engine() != "integrated" or not sunshine.is_installed():
+        _gamescope_gone_until = now + _GAMESCOPE_GONE_TTL
+        return None
+    ok, _ = sunshine.force_stop()
+    if ok:
+        _gamescope_gone_until = now + _GAMESCOPE_GONE_TTL
+    return "freed GPU — Game Mode ended (Sunshine yielded card0)" if ok else None
+
+
+def sunshine_coexist_tick():
+    """One tick of the Sunshine⇄Desktop GPU coexistence loop (the SLOW, 2s loop).
+
+    STOP (backstop): whenever a Desktop session is present OR gamescope is gone,
+    release the GPU by SIGKILLing Sunshine. The PRIMARY, fast release now lives in
+    sunshine_release_tick() on a sub-second loop; this stays as a slower catch-all
+    (e.g. a desktop session that appears while a gamescope process briefly overlaps).
+    Also UNCONDITIONAL — a stream whose Game Mode is ending is already over, and
+    holding card0 only deadlocks the desktop (see sunshine_release_tick). The
+    force_stop does NOT set the user-stopped flag, so Sunshine auto-returns in Game
+    Mode.
 
     START (debounced): only once stable_game_mode() holds — gamescope continuously up
     for a few seconds with no desktop — so a bouncing switch-to-Desktop never restarts
     Sunshine mid-transition and re-triggers the bounce. Returns a status string when it
     acted."""
-    if resolved_engine() != "integrated" or not sunshine.is_installed():
+    cfg = load_config()
+    if resolved_engine(cfg) != "integrated" or not sunshine.is_installed():
         return None
     if desktop_session_active() or not in_game_mode():
         # Desktop is (about to be) up — free the GPU for KWin.
-        if sunshine.is_running() and not sunshine.is_streaming():
+        if sunshine.is_running():
             # Fast SIGKILL: the GPU must free within a couple of seconds for KWin.
-            # Low-level, so it does NOT set the user-stopped flag.
+            # Low-level, so it does NOT set the user-stopped flag. Unconditional:
+            # the release path deliberately does not spare a live stream.
             ok, _ = sunshine.force_stop()
             return "stopped Sunshine — Desktop Mode / not Game Mode (freeing GPU)" if ok else None
         return None
-    # Game Mode: (re)start Sunshine if it should be running (and Game Mode is stable).
-    if sunshine_should_autorestart():
+    # Game Mode: (re)start Sunshine if it should be running (and Game Mode is
+    # stable). _autorestart_wanted rather than sunshine_should_autorestart: the
+    # engine and is_installed checks above already answered that half, and
+    # re-asking meant a second config load and a second flatpak probe per tick.
+    if _autorestart_wanted(cfg):
         ok, _ = sunshine.start()
         if ok:
-            apply_persisted_composition()
+            apply_persisted_composition(cfg)
         return "started Sunshine for Game Mode" if ok else None
     return None
 
 
-def sunshine_should_autorestart():
-    """True when Docky should (re)launch Sunshine: watchdog enabled, engine
-    integrated, installed, the user didn't stop it, Game Mode is STABLY up (no desktop
-    session, gamescope continuously present for a few seconds — Desktop needs the GPU
-    and a bouncing switch must not trigger a restart), and it isn't already running."""
-    cfg = load_config()
+def _autorestart_wanted(cfg):
+    """The watchdog conditions that DON'T re-check the engine: watchdog enabled,
+    the user didn't stop it, Game Mode is stably up, and it isn't already
+    running. For callers that just established the engine is integrated and
+    Sunshine is installed."""
     if not cfg["settings"].get("sunshineWatchdog"):
         return False
     if _sunshine_user_stopped:
         return False
+    if not stable_game_mode():
+        return False
+    return not sunshine.is_running()
+
+
+def sunshine_should_autorestart(cfg=None):
+    """True when Docky should (re)launch Sunshine: watchdog enabled, engine
+    integrated, installed, the user didn't stop it, Game Mode is STABLY up (no desktop
+    session, gamescope continuously present for a few seconds — Desktop needs the GPU
+    and a bouncing switch must not trigger a restart), and it isn't already running."""
+    cfg = cfg or load_config()
     if resolved_engine(cfg) != "integrated":
         return False
     if not sunshine.is_installed():
         return False
-    if not stable_game_mode():
-        return False
-    return not sunshine.is_running()
+    return _autorestart_wanted(cfg)
 
 
 def sunshine_autorestart():
@@ -1183,6 +1501,17 @@ def ensure_capture_healthy():
     rate-limited by a cooldown, gated on a display actually being lit, and capped
     so a genuinely unfixable failure can't spin. Never restarts mid-stream.
     Returns a status dict when it acts/observes something notable, else None."""
+    # Non-blocking: if a heal is already running on another thread (the resume
+    # hook), the cooldown would reject us anyway — so don't wait for it.
+    if not _capture_lock.acquire(blocking=False):
+        return None
+    try:
+        return _ensure_capture_healthy_locked()
+    finally:
+        _capture_lock.release()
+
+
+def _ensure_capture_healthy_locked():
     global _capture_unhealthy_streak, _capture_failed_heals, _capture_last_heal
     global _last_active_outputs
     if resolved_engine() != "integrated" or not sunshine.is_installed():
@@ -1237,7 +1566,8 @@ def _capture_restart(success_msg):
     """Restart Sunshine to rebuild its capture pipeline (start() ensures
     `capture = kms` first), then confirm from the fresh startup probe whether
     capture recovered, updating the failed-heal cap counter. Returns a status
-    dict."""
+    dict. Callers must hold _capture_lock. Blocks up to ~5s waiting for the
+    verdict; heals are cooldown-gated and rare, so that's fine on a watcher."""
     global _capture_failed_heals
     ok, msg = sunshine.restart()
     if not ok:
@@ -1276,6 +1606,15 @@ def rebuild_capture_after_resume():
     would fire, yet Sunshine's once-at-launch capture pipeline can be stale. Same
     guards + shared cooldown as ensure_capture_healthy() so the periodic watchdog
     won't also restart. Returns a status dict, or None when not applicable."""
+    if not _capture_lock.acquire(blocking=False):
+        return None  # the periodic heal is already in there; it'll cover us
+    try:
+        return _rebuild_capture_after_resume_locked()
+    finally:
+        _capture_lock.release()
+
+
+def _rebuild_capture_after_resume_locked():
     global _capture_last_heal, _capture_unhealthy_streak, _capture_failed_heals
     global _last_active_outputs
     if resolved_engine() != "integrated" or not sunshine.is_installed():
@@ -1416,14 +1755,21 @@ _TRIGGER_BASELINE = {
 
 
 def set_trigger(key, enabled):
-    """Enable/disable one automation trigger and baseline its current state."""
-    cfg = load_config()
-    if key not in cfg["settings"]:
-        return cfg["settings"]
-    cfg["settings"][key] = bool(enabled)
-    save_config(cfg)
+    """Enable/disable one automation trigger and baseline its current state.
+
+    Read-modify-write under _config_lock like every other config mutator —
+    without it this races the panel's fan/TDP quick controls and the editor's
+    whole-object save, either of which can drop the toggle on the floor."""
+    with _config_lock:
+        cfg = load_config()
+        if key not in cfg["settings"]:
+            return cfg["settings"]
+        cfg["settings"][key] = bool(enabled)
+        save_config(cfg)
     base = _TRIGGER_BASELINE.get(key)
     if base:
         field, read = base
+        # Outside the config lock: these probe hardware (sysfs/proc scans) and
+        # take the state lock, which has no business nesting under this one.
         update_state(**{field: read(cfg)})
     return cfg["settings"]
