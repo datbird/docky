@@ -10,6 +10,7 @@ user since the PipeWire socket lives in that user's runtime dir.
 import os
 import re
 import glob
+import time
 import shlex
 import subprocess
 
@@ -18,15 +19,41 @@ from sysenv import clean_env as _clean_env  # strip Decky's PyInstaller LD_LIBRA
 SESSION_USER = "deck"
 SESSION_UID = 1000
 
-# Steam Deck built-in controller (Valve Software).
+# Steam Deck built-in controller: USB 28de:1205 (Valve Software).
+# Verify on any Deck: `lsusb` -> "ID 28de:1205 Valve Software Steam Controller".
+# NB: 1205 is NOT in the usb.ids database -- the authoritative source is the
+# kernel's hid-steam driver, which claims it (`modinfo hid-steam` ->
+# v000028DEp00001205), alongside 1102 (wired Steam Controller) and 1142
+# (wireless dongle). The device's product string is just "Steam Controller",
+# identical to the older standalone pad, so the PID is the only discriminator.
 DECK_CONTROLLER_VID = "28de"
 DECK_CONTROLLER_PID = "1205"
 
+# How long a failed device scan is trusted before we look again.
+#
+# Resolved sysfs paths are memoized because get_state polls every 1.5-4s and a
+# rescan is ~30 globs with two open() attempts each. Hits are cached for the
+# process lifetime (revalidated with one cheap exists()). Misses are NOT: a miss
+# at plugin load can simply mean the device has not enumerated yet -- the backend
+# starts at boot, and amdgpu/steamdeck_hwmon/USB do not register in a guaranteed
+# order. Caching that miss permanently would silently disable TDP or fan control
+# for the whole uptime, which is the same one-shot-at-boot failure that
+# ensure_gamescope_atoms (v1.4.1) and the capture heal (v1.4.2) exist to prevent.
+#
+# So a miss is only rate-limited: one rescan every _MISS_RETRY_S at worst. That
+# keeps the poll hot path free of repeated globs on hardware where the sensor is
+# genuinely absent, while still self-healing a boot race within ~30s and picking
+# up a device that appears mid-session.
+_MISS_RETRY_S = 30.0
+
 
 def _su_deck(cmd, timeout=15):
-    """Run a shell command as the session user with their audio runtime dir.
-    On timeout returns a non-zero code so callers fail soft."""
-    full = "XDG_RUNTIME_DIR=/run/user/%d %s" % (SESSION_UID, cmd)
+    """Run a shell command (or ';'-joined script) as the session user with their
+    audio runtime dir. On timeout returns a non-zero code so callers fail soft.
+
+    XDG_RUNTIME_DIR is exported rather than prefixed onto the command, so it
+    applies to every command in a multi-command script and not just the first."""
+    full = "export XDG_RUNTIME_DIR=/run/user/%d; %s" % (SESSION_UID, cmd)
     try:
         res = subprocess.run(["su", SESSION_USER, "-c", full],
                              capture_output=True, text=True, env=_clean_env(),
@@ -62,7 +89,14 @@ def _list_sinks():
 def set_audio_output(target):
     """Set the default PipeWire sink to the first one matching `target`
     (preset like 'hdmi'/'speakers', or a substring of the sink name), and move
-    any playing streams onto it. Returns (ok, message)."""
+    any playing streams onto it. Returns (ok, message).
+
+    Every `su` costs a full PAM traversal (~tens of ms), so the whole write half
+    — set default, enumerate streams, move each one — goes over in a single
+    shell invocation instead of one per stream. Two `su` calls total, regardless
+    of how many streams are playing; matching stays in Python. Moves that fail
+    echo FAIL so we still don't report success when the playing app didn't
+    actually follow."""
     target = (target or "").strip()
     if not target:
         return False, "no audio target given"
@@ -78,20 +112,18 @@ def set_audio_output(target):
     if not match:
         return False, "no audio device matching '%s'" % target
     q = shlex.quote(match)  # sink names come from pactl but quote defensively
-    code, _o, err = _su_deck("pactl set-default-sink " + q)
+    script = (
+        "pactl set-default-sink %s || exit 1; "
+        "pactl list short sink-inputs | cut -f1 | "
+        "while read -r i; do "
+        "case \"$i\" in ''|*[!0-9]*) continue ;; esac; "
+        "pactl move-sink-input \"$i\" %s || echo FAIL; "
+        "done"
+    ) % (q, q)
+    code, out, err = _su_deck(script)
     if code != 0:
         return False, (err or "could not set default sink").strip()[:200]
-    # Move already-playing streams onto the new default. Track failures so we
-    # don't report success when the currently-playing app didn't actually follow.
-    code, out, _ = _su_deck("pactl list short sink-inputs")
-    moved_fail = 0
-    if code == 0:
-        for line in out.splitlines():
-            sid = line.split("\t")[0].strip()
-            if sid.isdigit():
-                mc, _mo, _me = _su_deck("pactl move-sink-input %s %s" % (sid, q))
-                if mc != 0:
-                    moved_fail += 1
+    moved_fail = out.split().count("FAIL")
     if moved_fail:
         return True, "audio output -> %s (%d stream(s) couldn't move)" % (match, moved_fail)
     return True, "audio output -> %s" % match
@@ -99,19 +131,58 @@ def set_audio_output(target):
 
 # ---------------- built-in controller ----------------
 
+# Bus id of the built-in pad (e.g. '3-3'), plus when we last failed to find it.
+# See _MISS_RETRY_S for why the miss is rate-limited rather than cached.
+_controller_dev_cache = None
+_controller_miss_at = None
+
+
+def _is_deck_controller(path):
+    try:
+        with open(os.path.join(path, "idVendor")) as f:
+            v = f.read().strip()
+        with open(os.path.join(path, "idProduct")) as f:
+            p = f.read().strip()
+    except OSError:
+        return False
+    return v == DECK_CONTROLLER_VID and p == DECK_CONTROLLER_PID
+
+
 def _controller_dev():
-    """Sysfs bus id (e.g. '3-3') of the built-in controller, or None."""
+    """Sysfs bus id (e.g. '3-3') of the built-in controller, or None.
+
+    Memoized: a cached id is revalidated with two cheap reads instead of a full
+    rescan, and a miss is retried at most every _MISS_RETRY_S so a device that
+    was not enumerated yet at boot is still picked up."""
+    global _controller_dev_cache, _controller_miss_at
+    cached = _controller_dev_cache
+    if cached is not None:
+        if _is_deck_controller("/sys/bus/usb/devices/" + cached):
+            return cached
+        _controller_dev_cache = None  # bus id moved (re-enumerated); rescan below
+    if (_controller_miss_at is not None
+            and (time.monotonic() - _controller_miss_at) < _MISS_RETRY_S):
+        return None
     for d in glob.glob("/sys/bus/usb/devices/*"):
-        try:
-            with open(os.path.join(d, "idVendor")) as f:
-                v = f.read().strip()
-            with open(os.path.join(d, "idProduct")) as f:
-                p = f.read().strip()
-        except OSError:
-            continue
-        if v == DECK_CONTROLLER_VID and p == DECK_CONTROLLER_PID:
-            return os.path.basename(d)
+        if _is_deck_controller(d):
+            _controller_dev_cache = os.path.basename(d)
+            _controller_miss_at = None
+            return _controller_dev_cache
+    _controller_miss_at = time.monotonic()
     return None
+
+
+def invalidate_device_cache():
+    """Drop memoized sysfs lookups so the next call rescans immediately.
+
+    Purely an optimization: the caches self-heal on their own within
+    _MISS_RETRY_S, so correctness does not depend on anyone calling this. Wire it
+    into a resume or USB-hotplug hook to skip that wait."""
+    global _controller_dev_cache, _controller_miss_at
+    _controller_dev_cache = None
+    _controller_miss_at = None
+    _hwmon_cache.clear()
+    _hwmon_miss_at.clear()
 
 
 def builtin_controller_enabled():
@@ -175,11 +246,52 @@ def external_controller_present():
     return False
 
 
+# ---------------- hwmon resolution ----------------
+
+# name -> resolved /sys/class/hwmon/hwmonN path (hits only), and name -> when we
+# last failed to resolve it. See _MISS_RETRY_S for why misses are not cached.
+_hwmon_cache = {}
+_hwmon_miss_at = {}
+
+
+def _hwmon_named(name):
+    """Path of the hwmonN whose `name` matches, or None.
+
+    Hits are memoized for the process lifetime (revalidated with one exists());
+    misses are retried at most every _MISS_RETRY_S."""
+    cached = _hwmon_cache.get(name)
+    if cached is not None:
+        if os.path.exists(cached):
+            return cached
+        _hwmon_cache.pop(name, None)  # hwmon renumbered; rescan below
+    last_miss = _hwmon_miss_at.get(name)
+    if last_miss is not None and (time.monotonic() - last_miss) < _MISS_RETRY_S:
+        return None
+    for h in glob.glob("/sys/class/hwmon/hwmon*"):
+        try:
+            with open(os.path.join(h, "name")) as f:
+                if f.read().strip() == name:
+                    _hwmon_cache[name] = h
+                    _hwmon_miss_at.pop(name, None)
+                    return h
+        except OSError:
+            continue
+    _hwmon_miss_at[name] = time.monotonic()
+    return None
+
+
+def _read_int(path):
+    try:
+        with open(path) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
 # ---------------- TDP (power cap) ----------------
 
 def _amdgpu_cap():
-    """Path to the amdgpu power1_cap (microwatts), or None. Uses the memoized
-    hwmon resolver so repeated TDP reads don't re-glob /sys/class/hwmon."""
+    """Path to the amdgpu power1_cap (microwatts), or None."""
     h = _hwmon_named("amdgpu")
     if h:
         cap = os.path.join(h, "power1_cap")
@@ -201,20 +313,21 @@ def set_tdp(watts):
     if not cap:
         return False, "no amdgpu power cap on this device"
     uw = w * 1_000_000
+    # An unreadable/garbage bound is treated as absent rather than fatal: the
+    # kernel rejects out-of-range writes anyway, so we'd rather try than bail.
+    mx = _read_int(cap + "_max")
+    if mx is not None:
+        uw = min(uw, mx)
+    # Don't let a too-low cap throttle the APU into the ground.
+    mn = _read_int(cap + "_min")
+    if mn is not None:
+        uw = max(uw, mn)
     try:
-        def _read(p):
-            with open(p) as f:
-                return int(f.read().strip())
-        if os.path.exists(cap + "_max"):
-            uw = min(uw, _read(cap + "_max"))
-        # Don't let a too-low cap throttle the APU into the ground.
-        if os.path.exists(cap + "_min"):
-            uw = max(uw, _read(cap + "_min"))
         with open(cap, "w") as f:
             f.write(str(uw))
-    except (OSError, ValueError) as e:
+    except OSError as e:
         return False, "could not set TDP: %s" % e
-    return True, "TDP set to %dW" % (uw // 1_000_000)
+    return True, "TDP set to %dW" % round(uw / 1_000_000.0)
 
 
 def get_tdp():
@@ -229,7 +342,7 @@ def get_tdp():
         out["watts"] = int(round(cur / 1_000_000.0))
     mx = _read_int(cap + "_max")
     if mx is not None:
-        out["max"] = int(mx / 1_000_000)
+        out["max"] = int(round(mx / 1_000_000.0))
     return out
 
 
@@ -247,7 +360,7 @@ def reset_tdp():
             f.write(str(mx))
     except OSError as e:
         return False, "could not reset TDP: %s" % e
-    return True, "TDP reset to default (%dW)" % (mx // 1_000_000)
+    return True, "TDP reset to default (%dW)" % round(mx / 1_000_000.0)
 
 
 # ---------------- Fan control + curve engine (steamdeck_hwmon) ----------------
@@ -275,28 +388,6 @@ DEFAULT_FAN_CURVE = [
 ]
 
 
-# Resolved hwmon paths are stable for the process lifetime (the backend restarts
-# on reboot), and get_state reads them every 1.5–4s — so memoize, turning ~5
-# directory globs + name-file reads per poll into ~0 after warmup.
-_hwmon_cache = {}
-
-
-def _hwmon_named(name):
-    """Path of the hwmonN whose `name` matches, or None. Memoized."""
-    cached = _hwmon_cache.get(name)
-    if cached and os.path.exists(cached):
-        return cached
-    for h in glob.glob("/sys/class/hwmon/hwmon*"):
-        try:
-            with open(os.path.join(h, "name")) as f:
-                if f.read().strip() == name:
-                    _hwmon_cache[name] = h
-                    return h
-        except OSError:
-            continue
-    return None
-
-
 def _fan_target_path():
     """Path to steamdeck_hwmon fan1_target (the RPM the EC aims for), or None."""
     h = _hwmon_named("steamdeck_hwmon")
@@ -305,14 +396,6 @@ def _fan_target_path():
         if os.path.exists(tgt):
             return tgt
     return None
-
-
-def _read_int(path):
-    try:
-        with open(path) as f:
-            return int(f.read().strip())
-    except (OSError, ValueError):
-        return None
 
 
 def read_fan_rpm():
@@ -367,20 +450,40 @@ def _fan_service(action):
         pass
 
 
-def curve_rpm(temp_c, points, interpolate=True):
-    """Map a temperature to a target RPM using the curve `points`
-    (list of {temp, rpm}). Below/above the curve ends clamp to the end values.
-    Between points: linear interpolation, or the lower point's RPM if stepped.
-    Returns an int RPM clamped to [0, FAN_MAX_RPM], or None if no usable points."""
+def normalize_curve(points):
+    """Validate and sort a raw [{temp, rpm}] curve into [(temp, rpm)] floats,
+    dropping malformed entries. Do this once when the curve is set, not on every
+    control-loop tick, and hand the result to curve_rpm()."""
     pts = []
     for p in points or []:
         try:
             pts.append((float(p["temp"]), float(p["rpm"])))
         except (KeyError, TypeError, ValueError):
             continue
+    pts.sort(key=lambda x: x[0])
+    return pts
+
+
+def _as_curve(points):
+    """Accept either a raw [{temp, rpm}] curve or an already-normalized one.
+
+    A list of tuples is assumed to have come from normalize_curve() and so to be
+    sorted by temperature -- curve_rpm's bracket search relies on that. Don't
+    hand-build tuple lists; go through normalize_curve()."""
+    if points and isinstance(points[0], tuple):
+        return points
+    return normalize_curve(points)
+
+
+def curve_rpm(temp_c, points, interpolate=True):
+    """Map a temperature to a target RPM using the curve `points` (raw
+    [{temp, rpm}] or normalized [(temp, rpm)]). Below/above the curve ends clamp
+    to the end values. Between points: linear interpolation, or the lower point's
+    RPM if stepped. Returns an int RPM clamped to [0, FAN_MAX_RPM], or None if no
+    usable points."""
+    pts = _as_curve(points)
     if not pts:
         return None
-    pts.sort(key=lambda x: x[0])
     if temp_c is None:
         # No reading: be safe, hold the curve's top RPM.
         rpm = pts[-1][1]
@@ -389,6 +492,11 @@ def curve_rpm(temp_c, points, interpolate=True):
     elif temp_c >= pts[-1][0]:
         rpm = pts[-1][1]
     else:
+        # pts[0][0] < temp_c < pts[-1][0], so a bracketing pair exists for any
+        # ordinary curve. Seed with the top RPM anyway: if a malformed curve ever
+        # defeats the search (NaN temps compare false against everything), this
+        # module's job is to keep the Deck cool, so fail to max cooling rather
+        # than raise out of the fan control loop.
         rpm = pts[-1][1]
         for (t0, r0), (t1, r1) in zip(pts, pts[1:]):
             if t0 <= temp_c <= t1:
