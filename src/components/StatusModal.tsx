@@ -25,7 +25,7 @@ export const StatusModal: VFC<{
 }> = ({ closeModal, state, activeName }) => {
   const sunshine = state.sunshine
     ? state.sunshine.running
-      ? "Streaming"
+      ? "Running"
       : state.sunshine.installed
         ? "Installed"
         : "Not installed"

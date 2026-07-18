@@ -126,6 +126,11 @@
         window.SP_REACT.createElement("div", { style: { fontWeight: 600, marginBottom: "4px" } }, title),
         children));
     const TextRow = (props) => {
+        // NOTE: verify `bIsPassword` is the masking prop in THIS build of the injected
+        // decky-frontend-lib. It's cast through `any`, so a wrong name (e.g. the field
+        // wants type="password") fails silently -- the input renders in plaintext with
+        // no type error. The only caller that relies on masking is PairModal; if a
+        // password ever shows unmasked, this is the first place to look.
         const extra = props.password ? { bIsPassword: true } : {};
         return (window.SP_REACT.createElement(deckyFrontendLib.Field, { label: props.label, childrenLayout: "below", bottomSeparator: "none" },
             window.SP_REACT.createElement(deckyFrontendLib.TextField, { ...extra, value: props.value || "", onChange: (e) => props.onChange(e.target.value) })));
@@ -136,17 +141,24 @@
     // with React #130). Optional `coarse` adds «/» buttons for big jumps.
     const Stepper = ({ label, value, min, max, step, coarse, unit, disabled, onChange }) => {
         const clamp = (v) => Math.max(min, Math.min(max, v));
+        // Everything below derives from this clamped value, never the raw `value`
+        // prop, which isn't validated -- a stored out-of-range value (e.g. a TDP
+        // profile persisted at 2W when min is 3) would otherwise paint the unreachable
+        // number while the −/« buttons sit disabled at the bound and the +/» buttons
+        // fire a no-op first press. Clamping once keeps the readout, the enable/disable
+        // bounds, and the emitted value consistent from the first paint.
+        const shown = clamp(value);
         // A plain render helper, NOT an inline component. Defining a component inside
         // Stepper would give it a new type identity every render, so React would
         // unmount/remount the buttons on each value change and GamepadUI would drop
         // focus mid-press. Returning <DialogButton> elements keeps the type stable.
-        const btn = (delta, txt) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: disabled || (delta < 0 ? value <= min : value >= max), onClick: () => onChange(clamp(value + delta)), style: { minWidth: 0, flex: 1, padding: "6px 4px", textAlign: "center" } }, txt));
+        const btn = (delta, txt) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: disabled || (delta < 0 ? shown <= min : shown >= max), onClick: () => onChange(clamp(shown + delta)), style: { minWidth: 0, flex: 1, padding: "6px 4px", textAlign: "center" } }, txt));
         return (window.SP_REACT.createElement(deckyFrontendLib.Field, { label: label, childrenLayout: "below", bottomSeparator: "none" },
             window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "6px", alignItems: "center" } },
                 coarse ? btn(-coarse, "«") : null,
                 btn(-step, "−"),
                 window.SP_REACT.createElement("div", { style: { flex: 1.6, textAlign: "center", fontWeight: 600 } },
-                    value,
+                    shown,
                     unit || ""),
                 btn(step, "+"),
                 coarse ? btn(coarse, "»") : null)));
@@ -1455,95 +1467,104 @@
         const [busy, setBusy] = react.useState(false);
         const [msg, setMsg] = react.useState("");
         const [clients, setClients] = react.useState([]);
-        function refreshClients() {
+        // Guard against state updates after the modal is dismissed mid-request.
+        const mounted = react.useRef(true);
+        react.useEffect(() => {
+            return () => {
+                mounted.current = false;
+            };
+        }, []);
+        // Centralized, unmount-safe completion for the async handlers below.
+        function finish(message) {
+            if (!mounted.current)
+                return;
+            setBusy(false);
+            setMsg(message);
+        }
+        function refreshClients(surfaceError = false) {
             call("sunshine_clients")
                 .then((r) => {
+                if (!mounted.current)
+                    return;
                 if (r && r.clients)
                     setClients(r.clients);
             })
-                .catch(() => { });
+                .catch((e) => {
+                // Post-mutation refreshes stay quiet so they don't clobber the success
+                // message; the initial load surfaces failure so an errored fetch isn't
+                // silently rendered as "no paired devices".
+                if (surfaceError && mounted.current)
+                    setMsg("Couldn't load devices: " + errText(e));
+            });
         }
         react.useEffect(() => {
             if (credsStored)
-                refreshClients();
+                refreshClients(true);
+            // credsStored is stable for the modal's lifetime; intentionally run once.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
         }, []);
+        function switchMode(next) {
+            setMode(next);
+            setMsg("");
+        }
         function unpairOne(uuid) {
             setBusy(true);
             setMsg("Unpairing…");
             call("sunshine_unpair", { uuid })
                 .then((r) => {
-                setBusy(false);
-                setMsg((r && r.message) || "done");
+                finish((r && r.message) || "done");
                 refreshClients();
             })
-                .catch((e) => {
-                setBusy(false);
-                setMsg("Error: " + errText(e));
-            });
+                .catch((e) => finish("Error: " + errText(e)));
         }
         function setEnabled(uuid, enabled) {
             setBusy(true);
             setMsg(enabled ? "Enabling…" : "Disabling…");
             call("sunshine_set_client_enabled", { uuid, enabled })
                 .then((r) => {
-                setBusy(false);
-                setMsg((r && r.message) || "done");
+                finish((r && r.message) || "done");
                 refreshClients();
             })
-                .catch((e) => {
-                setBusy(false);
-                setMsg("Error: " + errText(e));
-            });
+                .catch((e) => finish("Error: " + errText(e)));
         }
         function unpairAll() {
             setBusy(true);
             setMsg("Unpairing all…");
             call("sunshine_unpair_all")
                 .then((r) => {
-                setBusy(false);
-                setMsg((r && r.message) || "done");
+                finish((r && r.message) || "done");
                 refreshClients();
             })
-                .catch((e) => {
-                setBusy(false);
-                setMsg("Error: " + errText(e));
-            });
+                .catch((e) => finish("Error: " + errText(e)));
         }
         function saveLogin() {
             setBusy(true);
             setMsg("Setting login…");
             call("set_sunshine_login", { username: user, password: pass })
                 .then((r) => {
-                setBusy(false);
-                setMsg((r && r.message) || (r && r.ok ? "Login set" : "Failed"));
+                finish((r && r.message) || (r && r.ok ? "Login set" : "Failed"));
                 if (r && r.ok) {
                     if (r.state)
                         onState(r.state);
-                    setMode("pair");
+                    setPass(""); // don't retain the plaintext password once it's stored
+                    switchMode("pair");
                     refreshClients(); // a login may already have paired devices to show
                 }
             })
-                .catch((e) => {
-                setBusy(false);
-                setMsg("Error: " + errText(e));
-            });
+                .catch((e) => finish("Error: " + errText(e)));
         }
         function doPair() {
             setBusy(true);
             setMsg("Pairing…");
             call("sunshine_pair", { pin, name })
                 .then((r) => {
-                setBusy(false);
-                setMsg((r && r.message) || (r && r.ok ? "Paired" : "Failed"));
+                finish((r && r.message) || (r && r.ok ? "Paired" : "Failed"));
                 if (r && r.ok) {
                     setPin("");
                     refreshClients();
                 }
             })
-                .catch((e) => {
-                setBusy(false);
-                setMsg("Error: " + errText(e));
-            });
+                .catch((e) => finish("Error: " + errText(e)));
         }
         return (window.SP_REACT.createElement(deckyFrontendLib.ModalRoot, { onCancel: closeModal, onEscKeypress: closeModal },
             window.SP_REACT.createElement("div", { style: { fontSize: "1.3em", fontWeight: 700, marginBottom: "8px" } }, "Pair a device"),
@@ -1557,7 +1578,7 @@
                 window.SP_REACT.createElement(TextRow, { label: "Device name (optional)", value: name, onChange: setName }),
                 window.SP_REACT.createElement("div", { style: { display: "flex", gap: "8px" } },
                     window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !pin.trim(), onClick: doPair }, "Pair"),
-                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => setMode("login") }, "Change login")),
+                    window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => switchMode("login") }, "Change login")),
                 window.SP_REACT.createElement("div", { style: { fontWeight: 600, marginTop: "12px", marginBottom: "2px" } }, "Paired devices"),
                 clients.length === 0 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6, fontSize: "0.85em" } }, "None")) : (clients.map((c) => {
                     const enabled = c.enabled !== false;
@@ -1589,7 +1610,7 @@
     const StatusModal = ({ closeModal, state, activeName }) => {
         const sunshine = state.sunshine
             ? state.sunshine.running
-                ? "Streaming"
+                ? "Running"
                 : state.sunshine.installed
                     ? "Installed"
                     : "Not installed"

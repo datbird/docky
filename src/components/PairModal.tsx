@@ -1,7 +1,21 @@
-import { VFC, useState, useEffect } from "react";
+import { VFC, useState, useEffect, useRef } from "react";
 import { ModalRoot, DialogButton } from "decky-frontend-lib";
 import { call, errText } from "../util";
 import { TextRow } from "./inputs";
+
+interface Client {
+  uuid: string;
+  name?: string;
+  enabled?: boolean;
+}
+
+// Backend responses are loosely shaped; keep the fields we actually read typed.
+interface CallResult {
+  ok?: boolean;
+  message?: string;
+  state?: any;
+  clients?: Client[];
+}
 
 // Pair a Moonlight client with Docky's Sunshine. If no Sunshine login is stored
 // yet, first set one (Docky takes ownership of the credentials); then submit the
@@ -18,100 +32,109 @@ export const PairModal: VFC<{
   const [name, setName] = useState<string>("");
   const [busy, setBusy] = useState<boolean>(false);
   const [msg, setMsg] = useState<string>("");
-  const [clients, setClients] = useState<any[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
 
-  function refreshClients() {
-    call<any>("sunshine_clients")
+  // Guard against state updates after the modal is dismissed mid-request.
+  const mounted = useRef(true);
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  // Centralized, unmount-safe completion for the async handlers below.
+  function finish(message: string) {
+    if (!mounted.current) return;
+    setBusy(false);
+    setMsg(message);
+  }
+
+  function refreshClients(surfaceError = false) {
+    call<CallResult>("sunshine_clients")
       .then((r) => {
+        if (!mounted.current) return;
         if (r && r.clients) setClients(r.clients);
       })
-      .catch(() => {});
+      .catch((e) => {
+        // Post-mutation refreshes stay quiet so they don't clobber the success
+        // message; the initial load surfaces failure so an errored fetch isn't
+        // silently rendered as "no paired devices".
+        if (surfaceError && mounted.current) setMsg("Couldn't load devices: " + errText(e));
+      });
   }
 
   useEffect(() => {
-    if (credsStored) refreshClients();
+    if (credsStored) refreshClients(true);
+    // credsStored is stable for the modal's lifetime; intentionally run once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function switchMode(next: "login" | "pair") {
+    setMode(next);
+    setMsg("");
+  }
 
   function unpairOne(uuid: string) {
     setBusy(true);
     setMsg("Unpairing…");
-    call<any>("sunshine_unpair", { uuid })
+    call<CallResult>("sunshine_unpair", { uuid })
       .then((r) => {
-        setBusy(false);
-        setMsg((r && r.message) || "done");
+        finish((r && r.message) || "done");
         refreshClients();
       })
-      .catch((e) => {
-        setBusy(false);
-        setMsg("Error: " + errText(e));
-      });
+      .catch((e) => finish("Error: " + errText(e)));
   }
 
   function setEnabled(uuid: string, enabled: boolean) {
     setBusy(true);
     setMsg(enabled ? "Enabling…" : "Disabling…");
-    call<any>("sunshine_set_client_enabled", { uuid, enabled })
+    call<CallResult>("sunshine_set_client_enabled", { uuid, enabled })
       .then((r) => {
-        setBusy(false);
-        setMsg((r && r.message) || "done");
+        finish((r && r.message) || "done");
         refreshClients();
       })
-      .catch((e) => {
-        setBusy(false);
-        setMsg("Error: " + errText(e));
-      });
+      .catch((e) => finish("Error: " + errText(e)));
   }
 
   function unpairAll() {
     setBusy(true);
     setMsg("Unpairing all…");
-    call<any>("sunshine_unpair_all")
+    call<CallResult>("sunshine_unpair_all")
       .then((r) => {
-        setBusy(false);
-        setMsg((r && r.message) || "done");
+        finish((r && r.message) || "done");
         refreshClients();
       })
-      .catch((e) => {
-        setBusy(false);
-        setMsg("Error: " + errText(e));
-      });
+      .catch((e) => finish("Error: " + errText(e)));
   }
 
   function saveLogin() {
     setBusy(true);
     setMsg("Setting login…");
-    call<any>("set_sunshine_login", { username: user, password: pass })
+    call<CallResult>("set_sunshine_login", { username: user, password: pass })
       .then((r) => {
-        setBusy(false);
-        setMsg((r && r.message) || (r && r.ok ? "Login set" : "Failed"));
+        finish((r && r.message) || (r && r.ok ? "Login set" : "Failed"));
         if (r && r.ok) {
           if (r.state) onState(r.state);
-          setMode("pair");
+          setPass(""); // don't retain the plaintext password once it's stored
+          switchMode("pair");
           refreshClients(); // a login may already have paired devices to show
         }
       })
-      .catch((e) => {
-        setBusy(false);
-        setMsg("Error: " + errText(e));
-      });
+      .catch((e) => finish("Error: " + errText(e)));
   }
 
   function doPair() {
     setBusy(true);
     setMsg("Pairing…");
-    call<any>("sunshine_pair", { pin, name })
+    call<CallResult>("sunshine_pair", { pin, name })
       .then((r) => {
-        setBusy(false);
-        setMsg((r && r.message) || (r && r.ok ? "Paired" : "Failed"));
+        finish((r && r.message) || (r && r.ok ? "Paired" : "Failed"));
         if (r && r.ok) {
           setPin("");
           refreshClients();
         }
       })
-      .catch((e) => {
-        setBusy(false);
-        setMsg("Error: " + errText(e));
-      });
+      .catch((e) => finish("Error: " + errText(e)));
   }
 
   return (
@@ -141,7 +164,7 @@ export const PairModal: VFC<{
             <DialogButton disabled={busy || !pin.trim()} onClick={doPair}>
               Pair
             </DialogButton>
-            <DialogButton disabled={busy} onClick={() => setMode("login")}>
+            <DialogButton disabled={busy} onClick={() => switchMode("login")}>
               Change login
             </DialogButton>
           </div>
