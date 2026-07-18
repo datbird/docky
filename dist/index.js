@@ -1525,91 +1525,142 @@
         react.useEffect(() => {
             busyRef.current = busy;
         }, [busy]);
+        // A modal (editor, fan curve, pairing, status) owns the source of truth while
+        // it's open and calls back with the authoritative state when it closes. The
+        // background poll must NOT run underneath it: a get_state landing mid-edit
+        // would replace what the user is looking at with stale backend state, and — for
+        // FanModal/PairModal, which don't guarantee they setState last — could win the
+        // race against the modal's own onSaved. showModal returns a handle; we count
+        // opens/closes so nested or rapid opens can't leave the poll wedged off.
+        const modalCountRef = react.useRef(0);
+        // Wrap showModal so every modal this panel opens increments the poll-pause
+        // count for its lifetime, whatever closes it (Save, Cancel, back button).
+        function openModal(node) {
+            modalCountRef.current += 1;
+            const inst = deckyFrontendLib.showModal(
+            // decky's showModal injects closeModal; preserve any the node already has.
+            node);
+            // showModal doesn't give a close callback, so patch the returned instance's
+            // Close to decrement. Guard so a double-close can't drive the count negative.
+            const origClose = inst && inst.Close ? inst.Close.bind(inst) : null;
+            if (inst) {
+                let closed = false;
+                inst.Close = () => {
+                    if (!closed) {
+                        closed = true;
+                        modalCountRef.current = Math.max(0, modalCountRef.current - 1);
+                    }
+                    if (origClose)
+                        origClose();
+                };
+            }
+            return inst;
+        }
         react.useEffect(() => {
             refresh();
-            // Skip the periodic poll while a mutation is in flight — otherwise a refresh
-            // can land after an action and clobber it with stale state (toggles snapping
-            // back, momentary flicker).
+            // Skip the periodic poll while a mutation is in flight OR a modal is open —
+            // otherwise a refresh can land after an action (or mid-edit) and clobber it
+            // with stale state (toggles snapping back, momentary flicker, an edit view
+            // replaced underneath the user).
             const iv = setInterval(() => {
-                if (!busyRef.current)
+                if (!busyRef.current && modalCountRef.current === 0)
                     refresh();
             }, 4000);
             return () => clearInterval(iv);
         }, []);
-        function doCall(method, args, label) {
+        // Every mutation handler funnels through here so the busy/refresh/error
+        // discipline is defined once. `optimistic` lets a caller paint an expected
+        // state immediately and hands back the rollback: on any failure we restore the
+        // exact prior snapshot rather than leaving an optimistic value stranded until
+        // the next poll (or forever, if the poll also fails). The response's own
+        // `state` is authoritative when present; otherwise we refresh().
+        function mutate(method, args, opts = {}) {
+            const undo = opts.optimistic ? opts.optimistic() : null;
             setBusy(true);
-            setMsg(label + "…");
-            call(method, args)
+            if (opts.pending)
+                setMsg(opts.pending);
+            return call(method, args)
                 .then((r) => {
                 setBusy(false);
-                const text = summarize(r && r.result);
-                setMsg(text);
-                toast(text);
                 if (r && r.state)
                     setState(r.state);
                 else
                     refresh();
+                const text = opts.done ? opts.done(r) : (r && r.message) || (opts.pending || method);
+                setMsg(text);
+                if (opts.toastResult)
+                    toast(text);
+                return r;
             })
                 .catch((err) => {
                 setBusy(false);
+                if (undo)
+                    undo(); // revert the optimistic paint; the failure stands
                 const text = "Error: " + errText(err);
                 setMsg(text);
-                toast(text);
+                if (opts.toastResult)
+                    toast(text);
+                return undefined;
+            });
+        }
+        function doCall(method, args, label) {
+            mutate(method, args, {
+                pending: label + "…",
+                done: (r) => {
+                    const text = summarize(r && r.result);
+                    toast(text);
+                    return text;
+                },
             });
         }
         function toggleTrigger(key, label, v) {
-            setBusy(true);
-            // Optimistically reflect the new toggle so the switch doesn't visibly snap
-            // back while the (root) backend call is in flight; reconciled on response.
-            setState((s) => (s ? { ...s, settings: { ...(s.settings || {}), [key]: v } } : s));
-            call("set_trigger", { key, enabled: v })
-                .then((r) => {
-                setBusy(false);
-                if (r && r.state)
-                    setState(r.state);
-                else
-                    refresh();
-                setMsg(label + " " + (v ? "ON" : "OFF"));
-            })
-                .catch((err) => {
-                setBusy(false);
-                setMsg("Error: " + errText(err));
+            mutate("set_trigger", { key, enabled: v }, {
+                done: () => label + " " + (v ? "ON" : "OFF"),
+                // Optimistically flip the switch so it doesn't visibly lag the (root)
+                // backend round-trip; undo restores the prior value on failure.
+                optimistic: () => {
+                    let prev;
+                    setState((s) => {
+                        if (!s)
+                            return s;
+                        prev = s.settings?.[key];
+                        return { ...s, settings: { ...(s.settings || {}), [key]: v } };
+                    });
+                    return () => setState((s) => s ? { ...s, settings: { ...(s.settings || {}), [key]: prev } } : s);
+                },
             });
         }
         function sunshineControl(method, verb) {
-            setBusy(true);
-            setMsg(verb + " Sunshine…");
-            call(method, {})
-                .then((r) => {
-                setBusy(false);
-                if (r && r.state)
-                    setState(r.state);
-                else
-                    refresh();
-                setMsg(r && r.message ? r.message : verb + " done");
-            })
-                .catch((err) => {
-                setBusy(false);
-                setMsg("Error: " + errText(err));
+            mutate(method, {}, {
+                pending: verb + " Sunshine…",
+                done: (r) => (r && r.message ? r.message : verb + " done"),
             });
         }
-        // Generic "fire a backend control method that returns {message,state}" helper
-        // for the fan/TDP quick controls.
+        // Fan/TDP quick controls and the Sunshine toggles: backend returns
+        // {message,state}. For the toggles we paint optimistically and roll back on
+        // error, so a rejected change doesn't leave the switch lying about reality.
         function fanTdpCall(method, args, label) {
-            setBusy(true);
-            setMsg(label + "…");
-            call(method, args)
-                .then((r) => {
-                setBusy(false);
-                if (r && r.state)
-                    setState(r.state);
-                else
-                    refresh();
-                setMsg(r && r.message ? r.message : label);
-            })
-                .catch((err) => {
-                setBusy(false);
-                setMsg("Error: " + errText(err));
+            mutate(method, args, {
+                pending: label + "…",
+                done: (r) => (r && r.message ? r.message : label),
+            });
+        }
+        // A Sunshine setting toggle keyed under state.sunshine.<key>. Optimistic with
+        // rollback, matching the trigger toggles.
+        function sunshineToggle(method, key, v, label) {
+            mutate(method, { enabled: v }, {
+                pending: label + "…",
+                done: (r) => (r && r.message ? r.message : label),
+                optimistic: () => {
+                    let prev;
+                    setState((s) => {
+                        if (!s)
+                            return s;
+                        prev = s.sunshine?.[key];
+                        return { ...s, sunshine: { ...(s.sunshine || {}), [key]: v } };
+                    });
+                    return () => setState((s) => s ? { ...s, sunshine: { ...(s.sunshine || {}), [key]: prev } } : s);
+                },
             });
         }
         function setFanMode(mode) {
@@ -1619,33 +1670,23 @@
             // A deliberate one-shot action — toast so it's clearly acknowledged (the
             // inline status line is faint and far from the button, and when nothing was
             // being enforced there's no visible hardware change to confirm it worked).
-            setBusy(true);
-            setMsg("Handing control to SteamOS…");
-            call("release_control", {})
-                .then((r) => {
-                setBusy(false);
-                if (r && r.state)
-                    setState(r.state);
-                else
-                    refresh();
-                const m = (r && r.message) || "Handed control back to SteamOS";
-                setMsg(m);
-                toast(m);
-            })
-                .catch((err) => {
-                setBusy(false);
-                const m = "Error: " + errText(err);
-                setMsg(m);
-                toast(m);
+            mutate("release_control", {}, {
+                pending: "Handing control to SteamOS…",
+                done: (r) => (r && r.message) || "Handed control back to SteamOS",
+                toastResult: true,
             });
         }
         function openEditor(initialTab) {
+            // Pause the poll for the whole fetch+modal lifetime, not just the fetch:
+            // increment now, and hand a decrementing close down to the modal. (openModal
+            // handles that; here we also cover the window between the click and the
+            // config arriving.) Kept as its own count via openModal below.
             setBusy(true);
             call("get_config", {})
                 .then((r) => {
                 setBusy(false);
                 const config = r && r.config ? r.config : { actions: {}, modes: {}, settings: {} };
-                deckyFrontendLib.showModal(window.SP_REACT.createElement(EditorModal, { initialConfig: config, initialTab: initialTab, profiles: (state && state.pcsx2_profiles) || [], installedPlugins: (state && state.installed_plugins) || [], onSaved: (st) => {
+                openModal(window.SP_REACT.createElement(EditorModal, { initialConfig: config, initialTab: initialTab, profiles: (state && state.pcsx2_profiles) || [], installedPlugins: (state && state.installed_plugins) || [], onSaved: (st) => {
                         if (st)
                             setState(st);
                         else
@@ -1674,15 +1715,18 @@
         const favorites = state.favorites || [];
         const fanProfiles = state.fanProfiles || [];
         const tdpProfiles = state.tdpProfiles || [];
+        const fan = state.fan;
+        const tdp = state.tdp;
+        const sun = state.sunshine;
         const activeName = (() => {
-            const found = modes.filter((x) => x.id === state.activeMode)[0];
+            const found = modes.find((x) => x.id === state.activeMode);
             return found ? found.name : state.activeMode || "none";
         })();
         return (window.SP_REACT.createElement(window.SP_REACT.Fragment, null,
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, { title: "Docky" },
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px" } },
-                        window.SP_REACT.createElement(IconButton, { flex: 0.5, disabled: busy, onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(StatusModal, { state: state, activeName: activeName })) },
+                        window.SP_REACT.createElement(IconButton, { flex: 0.5, disabled: busy, onClick: () => openModal(window.SP_REACT.createElement(StatusModal, { state: state, activeName: activeName })) },
                             window.SP_REACT.createElement(InfoIcon, null)),
                         window.SP_REACT.createElement(IconButton, { label: "Reload", disabled: busy, onClick: refresh },
                             window.SP_REACT.createElement(ReloadIcon, null)),
@@ -1718,19 +1762,24 @@
                 !sunshineOpen ? null : (window.SP_REACT.createElement(window.SP_REACT.Fragment, null,
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                         window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px" } },
-                            window.SP_REACT.createElement(IconButton, { label: "Pair", flex: 2, disabled: busy || !(state.sunshine && state.sunshine.running), onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(PairModal, { credsStored: !!(state.sunshine && state.sunshine.credsStored), onState: (st) => st && setState(st) })) },
+                            window.SP_REACT.createElement(IconButton, { label: "Pair", flex: 2, disabled: busy || !(sun && sun.running), onClick: () => openModal(window.SP_REACT.createElement(PairModal, { credsStored: !!(sun && sun.credsStored), onState: (st) => st && setState(st) })) },
                                 window.SP_REACT.createElement(DockIcon, null)),
-                            window.SP_REACT.createElement(IconButton, { disabled: busy || !(state.sunshine && state.sunshine.running), onClick: () => sunshineControl("sunshine_restart", "Restarting") },
+                            window.SP_REACT.createElement(IconButton, { disabled: busy || !(sun && sun.running), onClick: () => sunshineControl("sunshine_restart", "Restarting") },
                                 window.SP_REACT.createElement(RestartIcon, null)),
-                            window.SP_REACT.createElement(IconButton, { disabled: busy || !(state.sunshine && state.sunshine.installed), onClick: () => state.sunshine && state.sunshine.running
+                            window.SP_REACT.createElement(IconButton, { disabled: busy || !(sun && sun.installed), onClick: () => sun && sun.running
                                     ? sunshineControl("sunshine_stop", "Stopping")
-                                    : sunshineControl("sunshine_start", "Starting") }, state.sunshine && state.sunshine.running ? (window.SP_REACT.createElement(StopIcon, null)) : (window.SP_REACT.createElement(PlayIcon, null))))),
+                                    : sunshineControl("sunshine_start", "Starting") }, sun && sun.running ? window.SP_REACT.createElement(StopIcon, null) : window.SP_REACT.createElement(PlayIcon, null)))),
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Fix stretched image when docked", description: "Forces gamescope composition; re-applied automatically after reboots.", checked: !!(state.sunshine && state.sunshine.forceComposition), disabled: busy, onChange: (v) => fanTdpCall("set_force_composition", { enabled: v }, "Updating composition") })),
+                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Fix stretched image when docked", description: "Forces gamescope composition; re-applied automatically after reboots.", checked: !!(sun && sun.forceComposition), disabled: busy, onChange: (v) => sunshineToggle("set_force_composition", "forceComposition", v, "Updating composition") })),
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "HDR (Game Mode)", description: "Enables HDR output; re-applied automatically after reboots. Display and content must support HDR.", checked: !!(state.sunshine && state.sunshine.forceHdr), disabled: busy, onChange: (v) => fanTdpCall("set_force_hdr", { enabled: v }, "Updating HDR") })),
+                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "HDR (Game Mode)", description: "Enables HDR output; re-applied automatically after reboots. Display and content must support HDR.", checked: !!(sun && sun.forceHdr), disabled: busy, onChange: (v) => sunshineToggle("set_force_hdr", "forceHdr", v, "Updating HDR") })),
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Keep Sunshine running", description: "Relaunch Sunshine automatically if it crashes.", checked: !(state.sunshine && state.sunshine.watchdog === false), disabled: busy, onChange: (v) => fanTdpCall("set_sunshine_watchdog", { enabled: v }, "Updating watchdog") }))))),
+                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Keep Sunshine running", 
+                            // Defaults ON: watchdog is enabled unless the backend explicitly
+                            // sends watchdog:false. This is the one toggle that inverts (the
+                            // others default off via !!), because a missing value here should
+                            // read as "the safety net is on", not "off".
+                            description: "Relaunch Sunshine automatically if it crashes.", checked: !(sun && sun.watchdog === false), disabled: busy, onChange: (v) => sunshineToggle("set_sunshine_watchdog", "watchdog", v, "Updating watchdog") }))))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(SectionHeader, { title: "Fan", open: fanOpen, onToggle: () => setFanOpen(!fanOpen) })),
@@ -1738,26 +1787,26 @@
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                         window.SP_REACT.createElement("div", { style: { display: "flex", justifyContent: "space-between", padding: "0 4px 4px", fontSize: "0.9em" } },
                             window.SP_REACT.createElement("span", { style: { opacity: 0.75 } },
-                                typeof state.fan?.tempC === "number" ? state.fan.tempC + "°C" : "—°C",
+                                typeof fan?.tempC === "number" ? fan.tempC + "°C" : "—°C",
                                 " \u00B7",
                                 " ",
-                                typeof state.fan?.rpm === "number" ? state.fan.rpm + " RPM" : "— RPM"),
-                            window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, state.fan?.profile
-                                ? (fanProfiles.filter((p) => p.id === state.fan.profile)[0]?.name || state.fan.profile)
-                                : (state.fan?.mode || "auto").toUpperCase()))),
+                                typeof fan?.rpm === "number" ? fan.rpm + " RPM" : "— RPM"),
+                            window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, fan?.profile
+                                ? (fanProfiles.find((p) => p.id === fan.profile)?.name || fan.profile)
+                                : (fan?.mode || "auto").toUpperCase()))),
                     fanProfiles.length ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                        window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Apply profile", rgOptions: [{ data: "auto", label: "Auto (SteamOS)" }].concat(fanProfiles.map((p) => ({ data: p.id, label: p.name }))), selectedOption: state.fan?.profile || "auto", onChange: (o) => fanTdpCall("apply_fan_profile", { profile_id: o.data }, "Fan profile") }))) : null,
+                        window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Apply profile", rgOptions: [{ data: "auto", label: "Auto (SteamOS)" }].concat(fanProfiles.map((p) => ({ data: p.id, label: p.name }))), selectedOption: fan?.profile || "auto", onChange: (o) => fanTdpCall("apply_fan_profile", { profile_id: o.data }, "Fan profile") }))) : null,
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                        window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "6px" } }, ["auto", "curve", "manual"].map((m) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { key: m, disabled: busy || state.fan?.available === false, onClick: () => setFanMode(m), style: {
+                        window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "6px" } }, ["auto", "curve", "manual"].map((m) => (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { key: m, disabled: busy || fan?.available === false, onClick: () => setFanMode(m), style: {
                                 flex: 1,
                                 minWidth: 0,
                                 padding: "6px 4px",
-                                fontWeight: (state.fan?.mode || "auto") === m ? 700 : 400,
-                                background: (state.fan?.mode || "auto") === m ? "rgba(91,124,240,0.35)" : "rgba(255,255,255,0.06)",
-                                border: (state.fan?.mode || "auto") === m ? "1px solid #5b7cf0" : "1px solid transparent",
+                                fontWeight: (fan?.mode || "auto") === m ? 700 : 400,
+                                background: (fan?.mode || "auto") === m ? "rgba(91,124,240,0.35)" : "rgba(255,255,255,0.06)",
+                                border: (fan?.mode || "auto") === m ? "1px solid #5b7cf0" : "1px solid transparent",
                             } }, m === "auto" ? "Auto" : m === "curve" ? "Curve" : "Manual"))))),
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                        window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => deckyFrontendLib.showModal(window.SP_REACT.createElement(FanModal, { onSaved: (st) => { if (st)
+                        window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => openModal(window.SP_REACT.createElement(FanModal, { onSaved: (st) => { if (st)
                                     setState(st);
                                 else
                                     refresh(); } })) }, "Edit fan curve\u2026")),
@@ -1766,29 +1815,29 @@
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(SectionHeader, { title: "TDP", open: tdpOpen, onToggle: () => setTdpOpen(!tdpOpen) })),
-                !tdpOpen ? null : state.tdp?.available === false ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
+                !tdpOpen ? null : tdp?.available === false ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement("div", { style: { opacity: 0.7, padding: "0 4px" } }, "No adjustable TDP on this device."))) : (window.SP_REACT.createElement(window.SP_REACT.Fragment, null,
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                         window.SP_REACT.createElement("div", { style: { display: "flex", justifyContent: "space-between", padding: "0 4px 4px", fontSize: "0.9em" } },
-                            window.SP_REACT.createElement("span", { style: { opacity: 0.75 } }, typeof state.tdp?.watts === "number" ? "Now " + state.tdp.watts + "W" : "—W"),
-                            window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, state.tdp?.profile
-                                ? (tdpProfiles.filter((p) => p.id === state.tdp.profile)[0]?.name || state.tdp.profile)
+                            window.SP_REACT.createElement("span", { style: { opacity: 0.75 } }, typeof tdp?.watts === "number" ? "Now " + tdp.watts + "W" : "—W"),
+                            window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, tdp?.profile
+                                ? (tdpProfiles.find((p) => p.id === tdp.profile)?.name || tdp.profile)
                                 : "Manual"))),
                     tdpProfiles.length ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                        window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Apply profile", rgOptions: tdpProfiles.map((p) => ({ data: p.id, label: p.name + (p.watts ? " (" + p.watts + "W)" : "") })), selectedOption: state.tdp?.profile || "", onChange: (o) => { setTdpDraft(null); fanTdpCall("apply_tdp_profile", { profile_id: o.data }, "TDP profile"); } }))) : null,
+                        window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Apply profile", rgOptions: tdpProfiles.map((p) => ({ data: p.id, label: p.name + (p.watts ? " (" + p.watts + "W)" : "") })), selectedOption: tdp?.profile || "", onChange: (o) => { setTdpDraft(null); fanTdpCall("apply_tdp_profile", { profile_id: o.data }, "TDP profile"); } }))) : null,
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                        window.SP_REACT.createElement(Stepper, { label: "Manual TDP (W)", value: tdpDraft ?? state.tdp?.setWatts ?? 15, min: 3, max: state.tdp?.max || 15, step: 1, unit: "W", disabled: busy, onChange: (v) => setTdpDraft(v) })),
+                        window.SP_REACT.createElement(Stepper, { label: "Manual TDP (W)", value: tdpDraft ?? tdp?.setWatts ?? 15, min: 3, max: tdp?.max || 15, step: 1, unit: "W", disabled: busy, onChange: (v) => setTdpDraft(v) })),
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                         window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => {
-                                const w = tdpDraft ?? state.tdp?.setWatts ?? 15;
+                                const w = tdpDraft ?? tdp?.setWatts ?? 15;
                                 setTdpDraft(null); // let the polled hardware value drive the display again
                                 fanTdpCall("set_tdp_watts", { watts: w }, "Set TDP");
                             } },
                             "Apply ",
-                            tdpDraft ?? state.tdp?.setWatts ?? 15,
+                            tdpDraft ?? tdp?.setWatts ?? 15,
                             "W")),
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Keep enforced", description: "Re-apply continuously so Steam's TDP slider can't override it", checked: !!state.tdp?.enforce, disabled: busy, onChange: (v) => fanTdpCall("set_tdp_enforce", { on: v }, "TDP enforce " + (v ? "on" : "off")) })),
+                        window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Keep enforced", description: "Re-apply continuously so Steam's TDP slider can't override it", checked: !!tdp?.enforce, disabled: busy, onChange: (v) => fanTdpCall("set_tdp_enforce", { on: v }, "TDP enforce " + (v ? "on" : "off")) })),
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                         window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, onClick: () => openEditor("tdp") }, "Manage TDP profiles\u2026"))))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
