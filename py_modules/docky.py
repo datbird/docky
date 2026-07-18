@@ -778,7 +778,7 @@ def release_control():
     ok_t, msg_t = deckops.reset_tdp()
     ok = bool(fan.get("ok", True)) and ok_t
     return {"ok": ok,
-            "message": "Handed control back to SteamOS" if ok else (msg_t or fan.get("message", "")),
+            "message": "Handed Fan & TDP back to SteamOS" if ok else (msg_t or fan.get("message", "")),
             "fan": fan_status(cfg), "tdp": tdp_status(cfg)}
 
 

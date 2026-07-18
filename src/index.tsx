@@ -358,8 +358,8 @@ const Content: VFC = () => {
     // inline status line is faint and far from the button, and when nothing was
     // being enforced there's no visible hardware change to confirm it worked).
     mutate("release_control", {}, {
-      pending: "Handing control to SteamOS…",
-      done: (r) => (r && r.message) || "Handed control back to SteamOS",
+      pending: "Handing Fan & TDP back to SteamOS…",
+      done: (r) => (r && r.message) || "Handed Fan & TDP back to SteamOS",
       toastResult: true,
     });
   }
@@ -425,6 +425,17 @@ const Content: VFC = () => {
   const fan = state.fan;
   const tdp = state.tdp;
   const sun = state.sunshine;
+  // TDP label: a saved profile's name, else "Manual" only when Docky is actually
+  // holding a cap — enforcing, or the live cap sits below the hardware max. If
+  // neither, TDP has been handed back to SteamOS (e.g. via release_control, which
+  // clears enforce/profile and lifts the cap to max), so show "SteamOS", not
+  // "Manual".
+  const tdpLabel = tdp?.profile
+    ? (tdpProfiles.find((p) => p.id === tdp.profile)?.name || tdp.profile)
+    : (!!tdp?.enforce ||
+        (typeof tdp?.watts === "number" && typeof tdp?.max === "number" && tdp.watts < tdp.max))
+      ? "Manual"
+      : "SteamOS";
   const activeName = (() => {
     const found = modes.find((x) => x.id === state.activeMode);
     return found ? found.name : state.activeMode || "none";
@@ -457,7 +468,7 @@ const Content: VFC = () => {
             description="Fan → auto and TDP cap lifted; SteamOS/BIOS defaults take over"
             onClick={releaseControl}
           >
-            ⏏ Hand control back to SteamOS
+            ⏏ Hand Fan &amp; TDP control back to SteamOS
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
@@ -611,7 +622,11 @@ const Content: VFC = () => {
                 <span style={{ fontWeight: 600 }}>
                   {fan?.profile
                     ? (fanProfiles.find((p) => p.id === fan.profile)?.name || fan.profile)
-                    : (fan?.mode || "auto").toUpperCase()}
+                    : fan?.mode === "manual"
+                      ? "Manual"
+                      : fan?.mode === "curve"
+                        ? "Custom curve"
+                        : "SteamOS"}
                 </span>
               </div>
             </PanelSectionRow>
@@ -681,11 +696,7 @@ const Content: VFC = () => {
                 <span style={{ opacity: 0.75 }}>
                   {typeof tdp?.watts === "number" ? "Now " + tdp.watts + "W" : "—W"}
                 </span>
-                <span style={{ fontWeight: 600 }}>
-                  {tdp?.profile
-                    ? (tdpProfiles.find((p) => p.id === tdp.profile)?.name || tdp.profile)
-                    : "Manual"}
-                </span>
+                <span style={{ fontWeight: 600 }}>{tdpLabel}</span>
               </div>
             </PanelSectionRow>
             {tdpProfiles.length ? (

@@ -39,9 +39,13 @@ export const FanModal: VFC<{
     setCfg(c);
     setMode((s.fanMode as FanMode) || "auto");
     setManualRpm(typeof s.fanManualRpm === "number" ? s.fanManualRpm : 3000);
+    // interpolate defaults ON: only an explicit false turns it off (matches the
+    // backend's FanCurve.interpolate optional, which defaults true).
     setInterpolate(s.fanCurve?.interpolate !== false);
     setPoints((s.fanCurve?.points || []).map((p) => ({ temp: p.temp, rpm: p.rpm })));
     setProfiles(Object.keys(c.fanProfiles || {}).map((id) => ({ id, name: c.fanProfiles![id].name || id })));
+    // A freshly loaded draft matches what's persisted; nothing to save yet.
+    setDirty(false);
   }
 
   useEffect(() => {
@@ -68,6 +72,12 @@ export const FanModal: VFC<{
   }, []);
 
   // Persist active fan settings into the whole config, then apply immediately.
+  //
+  // The order is load-bearing: save_config() writes fanCurve.points, and
+  // set_fan_mode(mode, rpm) does NOT carry the curve -- it re-reads it from the
+  // just-saved config. So the save must land before the apply. save_config is
+  // synchronous through the backend call (it fsyncs), so chaining the promises
+  // is enough; don't reorder these.
   function save(applyMode: FanMode, applyRpm: number) {
     if (!cfg) return;
     setBusy(true);
@@ -78,9 +88,11 @@ export const FanModal: VFC<{
     next.settings.fanManualRpm = applyRpm;
     next.settings.fanCurve = { interpolate, points: normalizePoints(points) };
     next.settings.fanProfile = ""; // manual edit, not a saved profile
+    let saved = false;
     call<any>("save_config", { config: next })
       .then((r) => {
         if (!(r && r.ok)) throw new Error((r && r.error) || "save failed");
+        saved = true;
         setCfg(next);
         setDirty(false);
         return call<any>("set_fan_mode", { mode: applyMode, rpm: applyRpm });
@@ -91,26 +103,49 @@ export const FanModal: VFC<{
         toast("Fan: " + (r && r.message ? r.message : applyMode));
         if (r && r.state) onSaved(r.state);
       })
-      .catch((err) => { setBusy(false); setMsg("Error: " + errText(err)); toast("Fan save failed"); });
+      .catch((err) => {
+        setBusy(false);
+        // Distinguish "couldn't save at all" from "saved but the apply failed" --
+        // in the latter the config IS persisted, so telling the user it failed
+        // outright would make them think nothing happened and not retry.
+        const text = errText(err);
+        if (saved) {
+          setMsg("Saved, but couldn't apply: " + text);
+          toast("Fan saved but not applied");
+        } else {
+          setMsg("Error: " + text);
+          toast("Fan save failed");
+        }
+      });
   }
 
+  // Switching the mode tab. Auto and Manual apply on tap (their effect is fully
+  // determined by the tap -- hand back to SteamOS, or hold the current manual
+  // RPM). Curve does NOT: applying a curve has its own guarded button ("Save &
+  // apply curve", disabled until the curve is valid), and auto-applying on tab
+  // tap would bypass that check and could push a one-point / invalid curve.
   function pickMode(m: FanMode) {
     setMode(m);
+    if (m === "curve") {
+      setMsg("Edit the curve, then Save & apply.");
+      return;
+    }
     save(m, manualRpm);
   }
 
-  // Apply a saved profile (loads it into the active config) and refresh the draft.
+  // Apply a saved profile (loads it into the active config) and refresh the
+  // draft. busy stays true across BOTH round-trips so the 1.5s poll can't fire
+  // between the apply and the get_config and race loadFrom's setLive.
   function applyProfile(id: string) {
     setBusy(true);
     setMsg("Applying profile…");
     call<any>("apply_fan_profile", { profile_id: id })
       .then((r) => {
-        setBusy(false);
-        setMsg(r && r.message ? r.message : "Applied");
         if (r && r.state) onSaved(r.state);
+        setMsg(r && r.message ? r.message : "Applied");
         return call<{ config: Config }>("get_config", {});
       })
-      .then((r) => { if (r && r.config) loadFrom(r.config); })
+      .then((r) => { if (r && r.config) loadFrom(r.config); setBusy(false); })
       .catch((err) => { setBusy(false); setMsg("Error: " + errText(err)); });
   }
 
@@ -171,9 +206,9 @@ export const FanModal: VFC<{
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
         <div style={{ fontSize: "1.4em", fontWeight: 700 }}>Fan control</div>
         <div style={{ fontSize: "0.95em", opacity: 0.9 }}>
-          {typeof live?.tempC === "number" ? `${live!.tempC}°C` : "—°C"} ·{" "}
-          {typeof live?.rpm === "number" ? `${live!.rpm} RPM` : "— RPM"}
-          {typeof live?.target === "number" && live!.mode !== "auto" ? ` (→${live!.target})` : ""}
+          {typeof live?.tempC === "number" ? `${live.tempC}°C` : "—°C"} ·{" "}
+          {typeof live?.rpm === "number" ? `${live.rpm} RPM` : "— RPM"}
+          {typeof live?.target === "number" && live.mode !== "auto" ? ` (→${live.target})` : ""}
         </div>
       </div>
 
@@ -215,6 +250,7 @@ export const FanModal: VFC<{
             interpolate={interpolate}
             maxRpm={maxRpm}
             tempC={live?.tempC}
+            rpm={live?.rpm}
             busy={busy}
             onPoints={(p) => { setPoints(p); setDirty(true); }}
             onInterpolate={(b) => { setInterpolate(b); setDirty(true); }}

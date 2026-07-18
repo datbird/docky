@@ -7,10 +7,19 @@
         server = s;
     }
     function call(method, args) {
+        // Guard rather than assert (server!): if a call races ahead of definePlugin's
+        // setServer (a fast remount, an unlucky module-load order), the bare `!` gives
+        // "Cannot read properties of null", which tells the user nothing. errText
+        // surfaces this instead.
+        if (!server) {
+            return Promise.reject(new Error("Docky backend not ready yet — try again"));
+        }
         return server.callPluginMethod(method, args || {}).then((res) => {
             if (res && res.success)
                 return res.result;
-            throw new Error((res && res.result) || "call failed");
+            // On failure Decky puts the error in res.result; it's usually a string, but
+            // String() keeps "[object Object]" out of the message if it isn't.
+            throw new Error((res && res.result != null && String(res.result)) || "call failed");
         });
     }
     function toast(body) {
@@ -21,7 +30,14 @@
             /* noop */
         }
     }
+    // Deep clone for in-memory editor state (duplicating an action, snapshotting for
+    // undo). structuredClone round-trips everything JSON does and more; the
+    // JSON fallback covers any runtime old enough to lack it. NOTE: not for anything
+    // leaving the process — the save path strips client-only keys via stripTaskKeys().
     function clone(o) {
+        const sc = globalThis.structuredClone;
+        if (typeof sc === "function")
+            return sc(o);
         return JSON.parse(JSON.stringify(o));
     }
     function errText(err) {
@@ -50,6 +66,10 @@
     function nextTaskKey() {
         return "tk" + ++_taskSeq;
     }
+    // Assigns __key IN PLACE and returns the same object. The mutation is the point:
+    // the keys must persist on the editor's live config across renders, so a caller
+    // wanting an untouched original should pass clone(cfg). (stripTaskKeys, by
+    // contrast, clones — it must not disturb the live editor state it's reading.)
     function withTaskKeys(cfg) {
         Object.keys(cfg.actions || {}).forEach((aid) => {
             (cfg.actions[aid].tasks || []).forEach((t) => {
@@ -74,9 +94,16 @@
             return "Done";
         if (result.message)
             return result.message;
+        // activate_mode returns {actions:[{results}]}, run_action returns {results}.
+        // They're mutually exclusive in the backend; pick one shape rather than
+        // summing both, so a future endpoint that carried both couldn't double-count.
         const tasks = [];
-        (result.actions || []).forEach((a) => (a.results || []).forEach((t) => tasks.push(t)));
-        (result.results || []).forEach((t) => tasks.push(t));
+        if (result.actions) {
+            result.actions.forEach((a) => (a.results || []).forEach((t) => tasks.push(t)));
+        }
+        else if (result.results) {
+            result.results.forEach((t) => tasks.push(t));
+        }
         if (!tasks.length)
             return result.ok ? "OK" : "Failed";
         const fail = tasks.filter((t) => !t.ok);
@@ -389,6 +416,7 @@
     // Temperature axis bounds for the graph / sliders.
     const T_MIN = 30;
     const T_MAX = 95;
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     function sortPoints(pts) {
         return [...pts].sort((a, b) => a.temp - b.temp);
     }
@@ -403,25 +431,85 @@
     }
     // Read-only SVG plot of the curve with an optional live marker at the current
     // temperature (green dashed line).
-    const CurveGraph = ({ points, maxRpm, tempC, }) => {
+    const CurveGraph = ({ points, maxRpm, tempC, rpm, }) => {
         const W = 300;
         const H = 130;
-        const padL = 4, padR = 4, padT = 6, padB = 6;
-        const x = (t) => padL + ((t - T_MIN) / (T_MAX - T_MIN)) * (W - padL - padR);
-        const y = (r) => padT + (1 - r / Math.max(1, maxRpm)) * (H - padT - padB);
+        // Left/bottom gutters are widened to hold the axis tick labels below.
+        const padL = 26, padR = 8, padT = 8, padB = 16;
+        // Clamp both axes. The editor's Steppers keep live edits in range, but this
+        // graph also renders saved profiles and the backend's live curve, neither of
+        // which is guaranteed to fit: a curve authored against an OLED's higher RPM
+        // ceiling rendered on an LCD, or a hand-edited config.json (the file is
+        // advertised as human-editable) with a point below 30°C or above 95°C, would
+        // otherwise map outside the plot box. The root <svg> clips to its viewport, so
+        // an off-range point would vanish entirely and a polyline to a far-off vertex
+        // would distort the visible line. Clamping pins it to the frame edge, which
+        // reads as "past the end" far better than a dot floating loose.
+        const x = (t) => padL + ((clamp(t, T_MIN, T_MAX) - T_MIN) / (T_MAX - T_MIN)) * (W - padL - padR);
+        const y = (r) => padT + (1 - clamp(r, 0, maxRpm) / Math.max(1, maxRpm)) * (H - padT - padB);
         const pts = sortPoints(points);
         const line = pts.map((p) => `${x(p.temp).toFixed(1)},${y(p.rpm).toFixed(1)}`).join(" ");
+        // tempC is live hardware, wholly unrelated to the axis bounds — a docked Deck
+        // idles below the 30°C floor and can spike past 95°C — so the marker is the
+        // most likely thing to escape the plot. Clamp it too.
         const haveTemp = typeof tempC === "number";
+        const haveRpm = typeof rpm === "number";
+        const markerX = haveTemp ? x(tempC) : 0;
+        // The green dashed marker is the live operating point. The legend doubles as a
+        // readout: it only renders when there's a real current temperature to mark
+        // (saved-profile editing passes none), names the green line as "now", and
+        // shows the live temp — and the RPM too when the backend reports it.
+        const nowLabel = haveTemp
+            ? "Now " + Math.round(tempC) + "°" + (haveRpm ? " · " + Math.round(rpm) + " rpm" : "")
+            : "";
+        // Character-count width estimate. It's approximate in a proportional font, but
+        // the legend is now RIGHT-aligned, so this drives POSITION as well as the plate
+        // width -- an underestimate would push it off the right edge. Bias the per-char
+        // figure up slightly (5.5) and pad the base so the estimate errs wide, keeping
+        // the whole plate inside the plot rather than clipped at the frame.
+        const legendW = 26 + nowLabel.length * 5.5;
+        // Pinned top-RIGHT, not top-left. The green temp marker sits at markerX, and a
+        // docked Deck idling below 30°C clamps markerX to exactly padL (the left edge)
+        // -- so a top-left legend would sit directly under the marker in the common
+        // idle-docked case, hiding the very "now" values it's meant to show. The
+        // right corner is clear of both the idle marker and a cold-start first point.
+        const legendX = W - padR - legendW;
+        // Axis reference ticks so the plot is legible on its own, not just via the
+        // Steppers below: fan speed up the left edge (0 → max), temperature along the
+        // bottom (T_MIN → T_MAX). maxRpm differs by panel (LCD vs OLED), so the RPM
+        // labels are derived from it rather than hard-coded; compact "k" form keeps the
+        // left gutter narrow. The mid RPM tick sits on the centre gridline.
+        const rpmMax = Math.max(1, maxRpm);
+        const fmtRpm = (v) => (v >= 1000 ? +(v / 1000).toFixed(1) + "k" : String(Math.round(v)));
+        const gridY = (g) => padT + g * (H - padT - padB);
+        const rpmTicks = [
+            { y: padT, v: rpmMax, base: "hanging" },
+            { y: gridY(0.5), v: rpmMax / 2, base: "middle" },
+            { y: H - padB, v: 0, base: "middle" },
+        ];
+        const tempTicks = [
+            { t: T_MIN, anchor: "start" },
+            { t: 60, anchor: "middle" },
+            { t: T_MAX, anchor: "end" },
+        ];
         return (window.SP_REACT.createElement("svg", { width: "100%", viewBox: `0 0 ${W} ${H}`, style: { background: "rgba(255,255,255,0.04)", borderRadius: "6px" } },
-            [0.25, 0.5, 0.75].map((g) => (window.SP_REACT.createElement("line", { key: g, x1: padL, x2: W - padR, y1: padT + g * (H - padT - padB), y2: padT + g * (H - padT - padB), stroke: "rgba(255,255,255,0.08)", strokeWidth: "1" }))),
+            [0.25, 0.5, 0.75].map((g) => (window.SP_REACT.createElement("line", { key: "h" + g, x1: padL, x2: W - padR, y1: gridY(g), y2: gridY(g), stroke: "rgba(255,255,255,0.08)", strokeWidth: "1" }))),
+            tempTicks.map((tk) => (window.SP_REACT.createElement("line", { key: "v" + tk.t, x1: x(tk.t), x2: x(tk.t), y1: padT, y2: H - padB, stroke: "rgba(255,255,255,0.08)", strokeWidth: "1" }))),
+            rpmTicks.map((tk, i) => (window.SP_REACT.createElement("text", { key: "ry" + i, x: padL - 4, y: tk.y, textAnchor: "end", dominantBaseline: tk.base, fontSize: 9, fill: "rgba(255,255,255,0.5)" }, fmtRpm(tk.v)))),
+            tempTicks.map((tk) => (window.SP_REACT.createElement("text", { key: "tt" + tk.t, x: x(tk.t), y: H - padB + 11, textAnchor: tk.anchor, fontSize: 9, fill: "rgba(255,255,255,0.5)" }, tk.t + "°"))),
             pts.length >= 2 ? (window.SP_REACT.createElement("polyline", { points: line, fill: "none", stroke: "#5b7cf0", strokeWidth: "2.5", strokeLinejoin: "round", strokeLinecap: "round" })) : null,
             pts.map((p, i) => (window.SP_REACT.createElement("circle", { key: i, cx: x(p.temp), cy: y(p.rpm), r: "3.5", fill: "#f1f4fa" }))),
-            haveTemp ? (window.SP_REACT.createElement("line", { x1: x(tempC), x2: x(tempC), y1: padT, y2: H - padB, stroke: "#52d669", strokeWidth: "1.5", strokeDasharray: "3 3" })) : null));
+            haveTemp ? (window.SP_REACT.createElement("line", { x1: markerX, x2: markerX, y1: padT, y2: H - padB, stroke: "#52d669", strokeWidth: "1.5", strokeDasharray: "3 3" })) : null,
+            haveTemp && haveRpm ? (window.SP_REACT.createElement("circle", { cx: markerX, cy: y(rpm), r: "3", fill: "#52d669", stroke: "#0b0f16", strokeWidth: "1" })) : null,
+            haveTemp ? (window.SP_REACT.createElement("g", null,
+                window.SP_REACT.createElement("rect", { x: legendX, y: padT + 1, width: legendW, height: 12, rx: 2, fill: "rgba(11,15,22,0.6)" }),
+                window.SP_REACT.createElement("line", { x1: legendX + 4, x2: legendX + 16, y1: padT + 7, y2: padT + 7, stroke: "#52d669", strokeWidth: "1.5", strokeDasharray: "3 3" }),
+                window.SP_REACT.createElement("text", { x: legendX + 20, y: padT + 7, dominantBaseline: "middle", fontSize: 9, fill: "#7fe89a" }, nowLabel))) : null));
     };
     // Controlled editor for a fan curve: graph + interpolate toggle + per-point
     // temperature/RPM sliders with add/remove. Used for the live active curve and
     // for each saved profile.
-    const CurveEditor = ({ points, interpolate, maxRpm, tempC, busy, onPoints, onInterpolate }) => {
+    const CurveEditor = ({ points, interpolate, maxRpm, tempC, rpm, busy, onPoints, onInterpolate }) => {
         function setPoint(i, key, val) {
             onPoints(points.map((p, j) => (j === i ? { ...p, [key]: val } : p)));
         }
@@ -436,12 +524,14 @@
             // (a degenerate curve point). Bail instead; the add button is also disabled.
             if (last && temp <= last.temp)
                 return;
-            const rpm = last ? Math.min(maxRpm, last.rpm + 1000) : 3000;
-            onPoints([...points, { temp, rpm }]);
+            // rpmSeed, not rpm: the component destructures a `rpm` prop (the live
+            // reading) and shadowing it here would mislead the next editor of addPoint.
+            const rpmSeed = last ? Math.min(maxRpm, last.rpm + 1000) : 3000;
+            onPoints([...points, { temp, rpm: rpmSeed }]);
         }
         const atMaxTemp = points.length > 0 && Math.max(...points.map((p) => p.temp)) >= T_MAX;
         return (window.SP_REACT.createElement("div", null,
-            window.SP_REACT.createElement(CurveGraph, { points: points, maxRpm: maxRpm, tempC: tempC }),
+            window.SP_REACT.createElement(CurveGraph, { points: points, maxRpm: maxRpm, tempC: tempC, rpm: rpm }),
             window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { label: "Smooth (interpolate between points)", checked: interpolate, onChange: onInterpolate }),
             window.SP_REACT.createElement("div", { style: { fontWeight: 600, margin: "8px 0 2px" } }, "Curve points"),
             points.length < 2 ? (window.SP_REACT.createElement("div", { style: { opacity: 0.6, margin: "4px 0" } }, "Add at least two points to define a curve.")) : null,
@@ -496,10 +586,15 @@
         const [builtinType, setBuiltinType] = react.useState(BUILTIN_DEFS[0] ? BUILTIN_DEFS[0].type : "");
         const [vals, setVals] = react.useState({});
         const type = top === DOCKY_BUILTIN ? builtinType : top;
+        // taskDef can return null on a version skew (a saved type removed in an
+        // update). Guard rather than assert (!) so a stale value renders a message
+        // instead of throwing the whole editor.
         const def = taskDef(type);
         const topOptions = (hasBuiltins ? [{ data: DOCKY_BUILTIN, label: "Docky built-in task" }] : []).concat(GENERIC_DEFS.map((d) => ({ data: d.type, label: optLabel(d) })));
         const setField = (k, val) => setVals({ ...vals, [k]: val });
         const add = () => {
+            if (!def)
+                return;
             const task = { type, __key: nextTaskKey() };
             def.fields.forEach((f) => {
                 const val = vals[f.key];
@@ -512,7 +607,11 @@
                     task[f.key] = val;
                 }
                 else if (f.kind === "select" && f.options && f.options.length) {
-                    // Untouched dropdown: persist the shown default (its first option).
+                    // Untouched dropdown: persist the shown default (its first option). The
+                    // dropdown renders options[0] as selected, so the user did see this
+                    // value even if they didn't touch it. (Text fields, by contrast, are
+                    // omitted when empty — the asymmetry is intentional: a select always has
+                    // a meaningful default, an empty text box means "unset".)
                     task[f.key] = f.options[0].data;
                 }
                 else if (f.kind === "fanProfile" && profileOpts.fan[0]) {
@@ -527,8 +626,8 @@
             onAdd(task);
             setVals({});
         };
-        const valid = pluginOk(def) && (type === "pcsx2_profile" ? profiles.length > 0 : true);
-        const fieldEls = def.fields.map((f) => {
+        const valid = !!def && pluginOk(def) && (type === "pcsx2_profile" ? profiles.length > 0 : true);
+        const fieldEls = (def ? def.fields : []).map((f) => {
             if (f.kind === "bool") {
                 return (window.SP_REACT.createElement(deckyFrontendLib.ToggleField, { key: f.key, label: f.label, checked: vals[f.key] ?? !!f.def, onChange: (val) => setField(f.key, val) }));
             }
@@ -549,8 +648,9 @@
             }
             return (window.SP_REACT.createElement(TextRow, { key: f.key, label: f.label, value: vals[f.key], onChange: (val) => setField(f.key, val) }));
         });
-        const hasSettings = !!(def.settings && def.settings.length);
-        const openSettings = () => deckyFrontendLib.showModal(window.SP_REACT.createElement(TaskSettingsModal, { def: def, initial: taskSettings[type] || {}, onChange: (k, v) => onChangeTaskSetting(type, k, v) }));
+        const hasSettings = !!(def && def.settings && def.settings.length);
+        const openSettings = () => def &&
+            deckyFrontendLib.showModal(window.SP_REACT.createElement(TaskSettingsModal, { def: def, initial: taskSettings[type] || {}, onChange: (k, v) => onChangeTaskSetting(type, k, v) }));
         // Gear next to the task-type dropdown; grayed unless this type has settings.
         const gear = (window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !hasSettings, onClick: openSettings, style: { minWidth: 0, padding: "6px 10px", display: "flex", alignItems: "center", justifyContent: "center" } },
             window.SP_REACT.createElement(GearIcon, null)));
@@ -574,10 +674,13 @@
                             setVals({});
                         } })),
                 gear)),
-            !pluginOk(def) ? (window.SP_REACT.createElement("div", { style: { color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" } },
+            def && !pluginOk(def) ? (window.SP_REACT.createElement("div", { style: { color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" } },
                 "Requires the \u201C",
                 def.requiresPlugin,
-                "\u201D plugin, which isn\u2019t installed.")) : (fieldEls),
+                "\u201D plugin, which isn\u2019t installed.")) : !def ? (window.SP_REACT.createElement("div", { style: { color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" } },
+                "Unknown task type \u201C",
+                type,
+                "\u201D. It may belong to a newer version of Docky.")) : (fieldEls),
             window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !valid, onClick: add }, "+ Add task")));
     };
     // One tab button in the top tab bar.
@@ -651,6 +754,17 @@
         const [selMode, setSelMode] = react.useState(null);
         const [selFan, setSelFan] = react.useState(null);
         const [selTdp, setSelTdp] = react.useState(null);
+        // Two-step guard on discarding unsaved edits: first Cancel arms, second
+        // confirms. Cancel sits one stick-nudge from Save, and closing throws away the
+        // whole draft (edits only persist on Save), so a bare Cancel is a lot of work
+        // to lose to a fat finger.
+        const [confirmCancel, setConfirmCancel] = react.useState(false);
+        // saveCfg persists from cfgRef.current rather than its closed-over `cfg`, so it
+        // always writes the latest committed draft even if the Save handler were ever
+        // invoked from an older render's closure. Updated after commit, so it tracks
+        // the last rendered cfg (defensive — the two are identical for a normal click).
+        const cfgRef = react.useRef(cfg);
+        react.useEffect(() => { cfgRef.current = cfg; }, [cfg]);
         // Sunshine tab (live actions, not part of the config draft).
         const [sunInfo, setSunInfo] = react.useState(null);
         const [sunBusy, setSunBusy] = react.useState(false);
@@ -691,24 +805,31 @@
             if (tab === "sunshine" && !sunInfo && !sunBusy)
                 refreshSunshine();
         }, [tab]);
+        // Any edit disarms a pending cancel-confirm — the user is clearly still working.
         function mutate(fn) {
-            const next = clone(cfg);
-            next.actions = next.actions || {};
-            next.modes = next.modes || {};
-            next.settings = next.settings || {};
-            next.favorites = next.favorites || [];
-            fn(next);
-            setCfg(next);
+            setConfirmCancel(false);
+            setCfg((prev) => {
+                const next = clone(prev);
+                next.actions = next.actions || {};
+                next.modes = next.modes || {};
+                next.settings = next.settings || {};
+                next.favorites = next.favorites || [];
+                fn(next);
+                return next;
+            });
             setDirty(true);
         }
         function saveCfg() {
             setBusy(true);
             setMsg("Saving…");
-            call("save_config", { config: stripTaskKeys(cfg) })
+            // From the ref, not the closure, so a mutate landing in the same tick as a
+            // Save click can't make us persist stale config.
+            call("save_config", { config: stripTaskKeys(cfgRef.current) })
                 .then((r) => {
                 setBusy(false);
                 if (r && r.ok) {
                     setDirty(false);
+                    setConfirmCancel(false);
                     setMsg("Saved");
                     toast("Configuration saved");
                     if (r.state)
@@ -723,6 +844,20 @@
                 setBusy(false);
                 setMsg("Error: " + errText(err));
             });
+        }
+        // Close button. Clean (not dirty) closes immediately. Dirty arms a confirm on
+        // the first press and closes on the second.
+        function onClosePressed() {
+            if (!dirty) {
+                closeModal?.();
+                return;
+            }
+            if (confirmCancel) {
+                closeModal?.();
+                return;
+            }
+            setConfirmCancel(true);
+            setMsg("Discard unsaved changes? Press Discard again to confirm.");
         }
         const cfgActions = cfg.actions || {};
         const cfgModes = cfg.modes || {};
@@ -739,26 +874,19 @@
         const fanMax = 8000;
         const tdpMax = 30;
         function newAction() {
-            const next = clone(cfg);
-            next.actions = next.actions || {};
-            next.modes = next.modes || {};
-            next.settings = next.settings || {};
-            const id = uniqueId(slugify("New action"), next.actions);
-            next.actions[id] = { name: "New action", tasks: [] };
-            setCfg(next);
-            setDirty(true);
-            setSelAction(id);
+            mutate((n) => {
+                const id = uniqueId(slugify("New action"), n.actions);
+                n.actions[id] = { name: "New action", tasks: [] };
+                // Select inside the same commit so the drill-in view opens on it.
+                setSelAction(id);
+            });
         }
         function newMode() {
-            const next = clone(cfg);
-            next.actions = next.actions || {};
-            next.modes = next.modes || {};
-            next.settings = next.settings || {};
-            const id = uniqueId(slugify("New mode"), next.modes);
-            next.modes[id] = { name: "New mode", actions: [] };
-            setCfg(next);
-            setDirty(true);
-            setSelMode(id);
+            mutate((n) => {
+                const id = uniqueId(slugify("New mode"), n.modes);
+                n.modes[id] = { name: "New mode", actions: [] };
+                setSelMode(id);
+            });
         }
         // ---- ACTIONS TAB ----
         function renderActions() {
@@ -843,10 +971,19 @@
                             window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => {
                                     mutate((n) => {
                                         delete n.modes[mid];
-                                        if (n.settings.dockedMode === mid)
-                                            n.settings.dockedMode = "";
-                                        if (n.settings.undockedMode === mid)
-                                            n.settings.undockedMode = "";
+                                        // Clear every setting that points at this mode, not just the
+                                        // dock pair: the Triggers tab also maps modes into the AC,
+                                        // controller, resume, and startup slots, and a dangling id
+                                        // there renders a blank dropdown and saves a mode that's gone.
+                                        const modeKeys = [
+                                            "dockedMode", "undockedMode", "acMode", "noAcMode",
+                                            "controllerConnectMode", "controllerDisconnectMode",
+                                            "resumeMode", "startupMode",
+                                        ];
+                                        for (const k of modeKeys) {
+                                            if (n.settings[k] === mid)
+                                                n.settings[k] = "";
+                                        }
                                     });
                                     setSelMode(null);
                                 } }, "Delete mode")))));
@@ -953,8 +1090,8 @@
                         ? "Launch Sunshine when Docky loads after a reboot"
                         : "Managed by decky-sunshine in this mode", checked: integrated && cfg.settings.autostartSunshine !== false, disabled: busy || !integrated, onChange: (on) => mutate((n) => { n.settings.autostartSunshine = on; }) })));
         }
-        // ---- AUTO-DOCK TAB ----
-        function renderAutoDock() {
+        // ---- TRIGGERS TAB (mode mappings for dock / AC / controller / resume / startup) ----
+        function renderTriggers() {
             const strict = cfg.settings.requireExternalDisplay !== false; // default true
             return (window.SP_REACT.createElement("div", null,
                 window.SP_REACT.createElement("div", { style: { fontWeight: 700, margin: "2px 0 2px" } }, "Dock"),
@@ -975,33 +1112,38 @@
                 window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "On startup (boot) \u2192 mode", rgOptions: modeOpts, selectedOption: cfg.settings.startupMode || "", onChange: (o) => mutate((n) => { n.settings.startupMode = o.data; }) }),
                 window.SP_REACT.createElement(TextRow, { label: "Poll interval (seconds)", value: String(cfg.settings.pollSeconds || 3), onChange: (val) => mutate((n) => {
                         const num = parseInt(val, 10);
-                        n.settings.pollSeconds = isNaN(num) || num < 1 ? 1 : num;
+                        // Clamp to the backend's own [1, 3600] range so the UI never
+                        // shows a value the backend will silently rewrite on read.
+                        n.settings.pollSeconds = isNaN(num) ? 3 : Math.max(1, Math.min(3600, num));
                     }) }),
                 window.SP_REACT.createElement("div", { style: { fontSize: "0.7em", opacity: 0.6, marginTop: "6px" } }, "Enable each trigger from the panel's Triggers section; map it to a mode here.")));
         }
         // ---- FAN TAB (build/manage fan profiles) ----
         function newFanProfile() {
-            const next = clone(cfg);
-            next.fanProfiles = next.fanProfiles || {};
-            const id = uniqueId(slugify("New fan profile"), next.fanProfiles);
-            next.fanProfiles[id] = {
-                name: "New fan profile",
-                mode: "curve",
-                manualRpm: 3000,
-                curve: {
-                    interpolate: true,
-                    points: [
-                        { temp: 45, rpm: 0 },
-                        { temp: 55, rpm: 1800 },
-                        { temp: 65, rpm: 3200 },
-                        { temp: 75, rpm: 4800 },
-                        { temp: 85, rpm: 6500 },
-                    ],
-                },
-            };
-            setCfg(next);
-            setDirty(true);
-            setSelFan(id);
+            mutate((n) => {
+                n.fanProfiles = n.fanProfiles || {};
+                const id = uniqueId(slugify("New fan profile"), n.fanProfiles);
+                n.fanProfiles[id] = {
+                    name: "New fan profile",
+                    mode: "curve",
+                    manualRpm: 3000,
+                    // Mirrors deckops.DEFAULT_FAN_CURVE / docky.py default_config(). The
+                    // frontend has no import path to the Python constant, so if you retune
+                    // the starter curve, retune it in all three places -- they WILL drift
+                    // otherwise.
+                    curve: {
+                        interpolate: true,
+                        points: [
+                            { temp: 45, rpm: 0 },
+                            { temp: 55, rpm: 1800 },
+                            { temp: 65, rpm: 3200 },
+                            { temp: 75, rpm: 4800 },
+                            { temp: 85, rpm: 6500 },
+                        ],
+                    },
+                };
+                setSelFan(id);
+            });
         }
         function renderFan() {
             if (selFan && cfgFanProfiles[selFan]) {
@@ -1031,13 +1173,12 @@
         }
         // ---- TDP TAB (build/manage TDP profiles) ----
         function newTdpProfile() {
-            const next = clone(cfg);
-            next.tdpProfiles = next.tdpProfiles || {};
-            const id = uniqueId(slugify("New TDP profile"), next.tdpProfiles);
-            next.tdpProfiles[id] = { name: "New TDP profile", watts: 15 };
-            setCfg(next);
-            setDirty(true);
-            setSelTdp(id);
+            mutate((n) => {
+                n.tdpProfiles = n.tdpProfiles || {};
+                const id = uniqueId(slugify("New TDP profile"), n.tdpProfiles);
+                n.tdpProfiles[id] = { name: "New TDP profile", watts: 15 };
+                setSelTdp(id);
+            });
         }
         function renderTdp() {
             if (selTdp && cfgTdpProfiles[selTdp]) {
@@ -1065,7 +1206,7 @@
                 window.SP_REACT.createElement("span", { style: { fontSize: "0.8em", opacity: 0.7 } }, dirty ? "Unsaved changes" : "Saved")),
             window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "8px", marginBottom: "10px" } },
                 window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !dirty, onClick: saveCfg }, "Save"),
-                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: () => closeModal?.() }, dirty ? "Cancel" : "Close")),
+                window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy, onClick: onClosePressed }, !dirty ? "Close" : confirmCancel ? "Discard — confirm" : "Cancel")),
             msg ? window.SP_REACT.createElement("div", { style: { fontSize: "0.8em", opacity: 0.8, marginBottom: "8px" } }, msg) : null,
             window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "horizontal", style: { display: "flex", gap: "4px", marginBottom: "10px" } },
                 window.SP_REACT.createElement(TabButton, { active: tab === "actions", label: "Actions", onClick: () => setTab("actions") }),
@@ -1082,7 +1223,7 @@
                 tab === "fan" ? renderFan() : null,
                 tab === "tdp" ? renderTdp() : null,
                 tab === "sunshine" ? renderSunshine() : null,
-                tab === "triggers" ? renderAutoDock() : null)));
+                tab === "triggers" ? renderTriggers() : null)));
     };
 
     // Live editor for the *active* fan config, with quick apply of saved profiles
@@ -1109,9 +1250,13 @@
             setCfg(c);
             setMode(s.fanMode || "auto");
             setManualRpm(typeof s.fanManualRpm === "number" ? s.fanManualRpm : 3000);
+            // interpolate defaults ON: only an explicit false turns it off (matches the
+            // backend's FanCurve.interpolate optional, which defaults true).
             setInterpolate(s.fanCurve?.interpolate !== false);
             setPoints((s.fanCurve?.points || []).map((p) => ({ temp: p.temp, rpm: p.rpm })));
             setProfiles(Object.keys(c.fanProfiles || {}).map((id) => ({ id, name: c.fanProfiles[id].name || id })));
+            // A freshly loaded draft matches what's persisted; nothing to save yet.
+            setDirty(false);
         }
         react.useEffect(() => {
             call("get_config", {})
@@ -1138,6 +1283,12 @@
             return () => { stop = true; clearInterval(iv); };
         }, []);
         // Persist active fan settings into the whole config, then apply immediately.
+        //
+        // The order is load-bearing: save_config() writes fanCurve.points, and
+        // set_fan_mode(mode, rpm) does NOT carry the curve -- it re-reads it from the
+        // just-saved config. So the save must land before the apply. save_config is
+        // synchronous through the backend call (it fsyncs), so chaining the promises
+        // is enough; don't reorder these.
         function save(applyMode, applyRpm) {
             if (!cfg)
                 return;
@@ -1149,10 +1300,12 @@
             next.settings.fanManualRpm = applyRpm;
             next.settings.fanCurve = { interpolate, points: normalizePoints(points) };
             next.settings.fanProfile = ""; // manual edit, not a saved profile
+            let saved = false;
             call("save_config", { config: next })
                 .then((r) => {
                 if (!(r && r.ok))
                     throw new Error((r && r.error) || "save failed");
+                saved = true;
                 setCfg(next);
                 setDirty(false);
                 return call("set_fan_mode", { mode: applyMode, rpm: applyRpm });
@@ -1164,26 +1317,50 @@
                 if (r && r.state)
                     onSaved(r.state);
             })
-                .catch((err) => { setBusy(false); setMsg("Error: " + errText(err)); toast("Fan save failed"); });
+                .catch((err) => {
+                setBusy(false);
+                // Distinguish "couldn't save at all" from "saved but the apply failed" --
+                // in the latter the config IS persisted, so telling the user it failed
+                // outright would make them think nothing happened and not retry.
+                const text = errText(err);
+                if (saved) {
+                    setMsg("Saved, but couldn't apply: " + text);
+                    toast("Fan saved but not applied");
+                }
+                else {
+                    setMsg("Error: " + text);
+                    toast("Fan save failed");
+                }
+            });
         }
+        // Switching the mode tab. Auto and Manual apply on tap (their effect is fully
+        // determined by the tap -- hand back to SteamOS, or hold the current manual
+        // RPM). Curve does NOT: applying a curve has its own guarded button ("Save &
+        // apply curve", disabled until the curve is valid), and auto-applying on tab
+        // tap would bypass that check and could push a one-point / invalid curve.
         function pickMode(m) {
             setMode(m);
+            if (m === "curve") {
+                setMsg("Edit the curve, then Save & apply.");
+                return;
+            }
             save(m, manualRpm);
         }
-        // Apply a saved profile (loads it into the active config) and refresh the draft.
+        // Apply a saved profile (loads it into the active config) and refresh the
+        // draft. busy stays true across BOTH round-trips so the 1.5s poll can't fire
+        // between the apply and the get_config and race loadFrom's setLive.
         function applyProfile(id) {
             setBusy(true);
             setMsg("Applying profile…");
             call("apply_fan_profile", { profile_id: id })
                 .then((r) => {
-                setBusy(false);
-                setMsg(r && r.message ? r.message : "Applied");
                 if (r && r.state)
                     onSaved(r.state);
+                setMsg(r && r.message ? r.message : "Applied");
                 return call("get_config", {});
             })
                 .then((r) => { if (r && r.config)
-                loadFrom(r.config); })
+                loadFrom(r.config); setBusy(false); })
                 .catch((err) => { setBusy(false); setMsg("Error: " + errText(err)); });
         }
         // Save the current active settings as a new named profile.
@@ -1255,7 +1432,7 @@
                     manualRpm,
                     " RPM"))) : null,
             mode === "curve" ? (window.SP_REACT.createElement("div", null,
-                window.SP_REACT.createElement(CurveEditor, { points: points, interpolate: interpolate, maxRpm: maxRpm, tempC: live?.tempC, busy: busy, onPoints: (p) => { setPoints(p); setDirty(true); }, onInterpolate: (b) => { setInterpolate(b); setDirty(true); } }),
+                window.SP_REACT.createElement(CurveEditor, { points: points, interpolate: interpolate, maxRpm: maxRpm, tempC: live?.tempC, rpm: live?.rpm, busy: busy, onPoints: (p) => { setPoints(p); setDirty(true); }, onInterpolate: (b) => { setInterpolate(b); setDirty(true); } }),
                 window.SP_REACT.createElement(deckyFrontendLib.DialogButton, { disabled: busy || !dirty || !curveOk, onClick: () => save("curve", manualRpm), style: { marginTop: "6px" } }, "Save & apply curve"))) : null,
             mode === "auto" ? (window.SP_REACT.createElement("div", { style: { opacity: 0.7, fontSize: "0.85em", margin: "4px 0 10px" } }, "SteamOS controls the fan. Pick Curve or Manual to take over.")) : null,
             mode !== "auto" ? (window.SP_REACT.createElement("div", { style: { borderTop: "1px solid rgba(255,255,255,0.1)", marginTop: "8px", paddingTop: "8px" } },
@@ -1671,8 +1848,8 @@
             // inline status line is faint and far from the button, and when nothing was
             // being enforced there's no visible hardware change to confirm it worked).
             mutate("release_control", {}, {
-                pending: "Handing control to SteamOS…",
-                done: (r) => (r && r.message) || "Handed control back to SteamOS",
+                pending: "Handing Fan & TDP back to SteamOS…",
+                done: (r) => (r && r.message) || "Handed Fan & TDP back to SteamOS",
                 toastResult: true,
             });
         }
@@ -1718,6 +1895,17 @@
         const fan = state.fan;
         const tdp = state.tdp;
         const sun = state.sunshine;
+        // TDP label: a saved profile's name, else "Manual" only when Docky is actually
+        // holding a cap — enforcing, or the live cap sits below the hardware max. If
+        // neither, TDP has been handed back to SteamOS (e.g. via release_control, which
+        // clears enforce/profile and lifts the cap to max), so show "SteamOS", not
+        // "Manual".
+        const tdpLabel = tdp?.profile
+            ? (tdpProfiles.find((p) => p.id === tdp.profile)?.name || tdp.profile)
+            : (!!tdp?.enforce ||
+                (typeof tdp?.watts === "number" && typeof tdp?.max === "number" && tdp.watts < tdp.max))
+                ? "Manual"
+                : "SteamOS";
         const activeName = (() => {
             const found = modes.find((x) => x.id === state.activeMode);
             return found ? found.name : state.activeMode || "none";
@@ -1733,7 +1921,7 @@
                         window.SP_REACT.createElement(IconButton, { label: "Settings", disabled: busy, onClick: () => openEditor() },
                             window.SP_REACT.createElement(SettingsIcon, null)))),
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
-                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, description: "Fan \u2192 auto and TDP cap lifted; SteamOS/BIOS defaults take over", onClick: releaseControl }, "\u23CF Hand control back to SteamOS"))),
+                    window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", disabled: busy, description: "Fan \u2192 auto and TDP cap lifted; SteamOS/BIOS defaults take over", onClick: releaseControl }, "\u23CF Hand Fan & TDP control back to SteamOS"))),
             window.SP_REACT.createElement(deckyFrontendLib.PanelSection, null,
                 window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                     window.SP_REACT.createElement(SectionHeader, { title: "Favorites", open: favOpen, onToggle: () => setFavOpen(!favOpen) })),
@@ -1793,7 +1981,11 @@
                                 typeof fan?.rpm === "number" ? fan.rpm + " RPM" : "— RPM"),
                             window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, fan?.profile
                                 ? (fanProfiles.find((p) => p.id === fan.profile)?.name || fan.profile)
-                                : (fan?.mode || "auto").toUpperCase()))),
+                                : fan?.mode === "manual"
+                                    ? "Manual"
+                                    : fan?.mode === "curve"
+                                        ? "Custom curve"
+                                        : "SteamOS"))),
                     fanProfiles.length ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                         window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Apply profile", rgOptions: [{ data: "auto", label: "Auto (SteamOS)" }].concat(fanProfiles.map((p) => ({ data: p.id, label: p.name }))), selectedOption: fan?.profile || "auto", onChange: (o) => fanTdpCall("apply_fan_profile", { profile_id: o.data }, "Fan profile") }))) : null,
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
@@ -1820,9 +2012,7 @@
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                         window.SP_REACT.createElement("div", { style: { display: "flex", justifyContent: "space-between", padding: "0 4px 4px", fontSize: "0.9em" } },
                             window.SP_REACT.createElement("span", { style: { opacity: 0.75 } }, typeof tdp?.watts === "number" ? "Now " + tdp.watts + "W" : "—W"),
-                            window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, tdp?.profile
-                                ? (tdpProfiles.find((p) => p.id === tdp.profile)?.name || tdp.profile)
-                                : "Manual"))),
+                            window.SP_REACT.createElement("span", { style: { fontWeight: 600 } }, tdpLabel))),
                     tdpProfiles.length ? (window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,
                         window.SP_REACT.createElement(deckyFrontendLib.DropdownItem, { label: "Apply profile", rgOptions: tdpProfiles.map((p) => ({ data: p.id, label: p.name + (p.watts ? " (" + p.watts + "W)" : "") })), selectedOption: tdp?.profile || "", onChange: (o) => { setTdpDraft(null); fanTdpCall("apply_tdp_profile", { profile_id: o.data }, "TDP profile"); } }))) : null,
                     window.SP_REACT.createElement(deckyFrontendLib.PanelSectionRow, null,

@@ -1,4 +1,4 @@
-import { VFC, useState, useEffect } from "react";
+import { VFC, useState, useEffect, useRef } from "react";
 import {
   ModalRoot,
   DialogButton,
@@ -101,7 +101,10 @@ const AddTask: VFC<{
   const [vals, setVals] = useState<Record<string, any>>({});
 
   const type = top === DOCKY_BUILTIN ? builtinType : top;
-  const def = taskDef(type)!;
+  // taskDef can return null on a version skew (a saved type removed in an
+  // update). Guard rather than assert (!) so a stale value renders a message
+  // instead of throwing the whole editor.
+  const def = taskDef(type);
 
   const topOptions = (hasBuiltins ? [{ data: DOCKY_BUILTIN, label: "Docky built-in task" }] : []).concat(
     GENERIC_DEFS.map((d) => ({ data: d.type, label: optLabel(d) }))
@@ -110,6 +113,7 @@ const AddTask: VFC<{
   const setField = (k: string, val: any) => setVals({ ...vals, [k]: val });
 
   const add = () => {
+    if (!def) return;
     const task: Task = { type, __key: nextTaskKey() };
     def.fields.forEach((f) => {
       const val = vals[f.key];
@@ -119,7 +123,11 @@ const AddTask: VFC<{
       } else if (val !== undefined && val !== "") {
         task[f.key] = val;
       } else if (f.kind === "select" && f.options && f.options.length) {
-        // Untouched dropdown: persist the shown default (its first option).
+        // Untouched dropdown: persist the shown default (its first option). The
+        // dropdown renders options[0] as selected, so the user did see this
+        // value even if they didn't touch it. (Text fields, by contrast, are
+        // omitted when empty — the asymmetry is intentional: a select always has
+        // a meaningful default, an empty text box means "unset".)
         task[f.key] = f.options[0].data;
       } else if (f.kind === "fanProfile" && profileOpts.fan[0]) {
         task[f.key] = profileOpts.fan[0].data;
@@ -132,9 +140,9 @@ const AddTask: VFC<{
     setVals({});
   };
 
-  const valid = pluginOk(def) && (type === "pcsx2_profile" ? profiles.length > 0 : true);
+  const valid = !!def && pluginOk(def) && (type === "pcsx2_profile" ? profiles.length > 0 : true);
 
-  const fieldEls = def.fields.map((f) => {
+  const fieldEls = (def ? def.fields : []).map((f) => {
     if (f.kind === "bool") {
       return (
         <ToggleField
@@ -188,8 +196,9 @@ const AddTask: VFC<{
     );
   });
 
-  const hasSettings = !!(def.settings && def.settings.length);
+  const hasSettings = !!(def && def.settings && def.settings.length);
   const openSettings = () =>
+    def &&
     showModal(
       <TaskSettingsModal
         def={def}
@@ -253,9 +262,13 @@ const AddTask: VFC<{
           {gear}
         </Focusable>
       )}
-      {!pluginOk(def) ? (
+      {def && !pluginOk(def) ? (
         <div style={{ color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" }}>
           Requires the “{def.requiresPlugin}” plugin, which isn’t installed.
+        </div>
+      ) : !def ? (
+        <div style={{ color: "#e8a33d", fontSize: "0.8em", margin: "4px 0" }}>
+          Unknown task type “{type}”. It may belong to a newer version of Docky.
         </div>
       ) : (
         fieldEls
@@ -430,6 +443,18 @@ export const EditorModal: VFC<{
   const [selMode, setSelMode] = useState<string | null>(null);
   const [selFan, setSelFan] = useState<string | null>(null);
   const [selTdp, setSelTdp] = useState<string | null>(null);
+  // Two-step guard on discarding unsaved edits: first Cancel arms, second
+  // confirms. Cancel sits one stick-nudge from Save, and closing throws away the
+  // whole draft (edits only persist on Save), so a bare Cancel is a lot of work
+  // to lose to a fat finger.
+  const [confirmCancel, setConfirmCancel] = useState<boolean>(false);
+
+  // saveCfg persists from cfgRef.current rather than its closed-over `cfg`, so it
+  // always writes the latest committed draft even if the Save handler were ever
+  // invoked from an older render's closure. Updated after commit, so it tracks
+  // the last rendered cfg (defensive — the two are identical for a normal click).
+  const cfgRef = useRef(cfg);
+  useEffect(() => { cfgRef.current = cfg; }, [cfg]);
 
   // Sunshine tab (live actions, not part of the config draft).
   const [sunInfo, setSunInfo] = useState<SunshineInfo | null>(null);
@@ -472,25 +497,32 @@ export const EditorModal: VFC<{
     if (tab === "sunshine" && !sunInfo && !sunBusy) refreshSunshine();
   }, [tab]);
 
+  // Any edit disarms a pending cancel-confirm — the user is clearly still working.
   function mutate(fn: (n: Config) => void) {
-    const next = clone(cfg);
-    next.actions = next.actions || {};
-    next.modes = next.modes || {};
-    next.settings = next.settings || {};
-    next.favorites = next.favorites || [];
-    fn(next);
-    setCfg(next);
+    setConfirmCancel(false);
+    setCfg((prev) => {
+      const next = clone(prev);
+      next.actions = next.actions || {};
+      next.modes = next.modes || {};
+      next.settings = next.settings || {};
+      next.favorites = next.favorites || [];
+      fn(next);
+      return next;
+    });
     setDirty(true);
   }
 
   function saveCfg() {
     setBusy(true);
     setMsg("Saving…");
-    call<any>("save_config", { config: stripTaskKeys(cfg) })
+    // From the ref, not the closure, so a mutate landing in the same tick as a
+    // Save click can't make us persist stale config.
+    call<any>("save_config", { config: stripTaskKeys(cfgRef.current) })
       .then((r) => {
         setBusy(false);
         if (r && r.ok) {
           setDirty(false);
+          setConfirmCancel(false);
           setMsg("Saved");
           toast("Configuration saved");
           if (r.state) onSaved(r.state);
@@ -503,6 +535,15 @@ export const EditorModal: VFC<{
         setBusy(false);
         setMsg("Error: " + errText(err));
       });
+  }
+
+  // Close button. Clean (not dirty) closes immediately. Dirty arms a confirm on
+  // the first press and closes on the second.
+  function onClosePressed() {
+    if (!dirty) { closeModal?.(); return; }
+    if (confirmCancel) { closeModal?.(); return; }
+    setConfirmCancel(true);
+    setMsg("Discard unsaved changes? Press Discard again to confirm.");
   }
 
   const cfgActions = cfg.actions || {};
@@ -525,27 +566,20 @@ export const EditorModal: VFC<{
   const tdpMax = 30;
 
   function newAction() {
-    const next = clone(cfg);
-    next.actions = next.actions || {};
-    next.modes = next.modes || {};
-    next.settings = next.settings || {};
-    const id = uniqueId(slugify("New action"), next.actions);
-    next.actions[id] = { name: "New action", tasks: [] };
-    setCfg(next);
-    setDirty(true);
-    setSelAction(id);
+    mutate((n) => {
+      const id = uniqueId(slugify("New action"), n.actions);
+      n.actions[id] = { name: "New action", tasks: [] };
+      // Select inside the same commit so the drill-in view opens on it.
+      setSelAction(id);
+    });
   }
 
   function newMode() {
-    const next = clone(cfg);
-    next.actions = next.actions || {};
-    next.modes = next.modes || {};
-    next.settings = next.settings || {};
-    const id = uniqueId(slugify("New mode"), next.modes);
-    next.modes[id] = { name: "New mode", actions: [] };
-    setCfg(next);
-    setDirty(true);
-    setSelMode(id);
+    mutate((n) => {
+      const id = uniqueId(slugify("New mode"), n.modes);
+      n.modes[id] = { name: "New mode", actions: [] };
+      setSelMode(id);
+    });
   }
 
   // ---- ACTIONS TAB ----
@@ -710,8 +744,18 @@ export const EditorModal: VFC<{
                 onClick={() => {
                   mutate((n) => {
                     delete n.modes[mid];
-                    if (n.settings.dockedMode === mid) n.settings.dockedMode = "";
-                    if (n.settings.undockedMode === mid) n.settings.undockedMode = "";
+                    // Clear every setting that points at this mode, not just the
+                    // dock pair: the Triggers tab also maps modes into the AC,
+                    // controller, resume, and startup slots, and a dangling id
+                    // there renders a blank dropdown and saves a mode that's gone.
+                    const modeKeys = [
+                      "dockedMode", "undockedMode", "acMode", "noAcMode",
+                      "controllerConnectMode", "controllerDisconnectMode",
+                      "resumeMode", "startupMode",
+                    ] as const;
+                    for (const k of modeKeys) {
+                      if (n.settings[k] === mid) n.settings[k] = "";
+                    }
                   });
                   setSelMode(null);
                 }}
@@ -955,8 +999,8 @@ export const EditorModal: VFC<{
     );
   }
 
-  // ---- AUTO-DOCK TAB ----
-  function renderAutoDock() {
+  // ---- TRIGGERS TAB (mode mappings for dock / AC / controller / resume / startup) ----
+  function renderTriggers() {
     const strict = cfg.settings.requireExternalDisplay !== false; // default true
     return (
       <div>
@@ -1045,7 +1089,9 @@ export const EditorModal: VFC<{
           onChange={(val) =>
             mutate((n) => {
               const num = parseInt(val, 10);
-              n.settings.pollSeconds = isNaN(num) || num < 1 ? 1 : num;
+              // Clamp to the backend's own [1, 3600] range so the UI never
+              // shows a value the backend will silently rewrite on read.
+              n.settings.pollSeconds = isNaN(num) ? 3 : Math.max(1, Math.min(3600, num));
             })
           }
         />
@@ -1058,27 +1104,30 @@ export const EditorModal: VFC<{
 
   // ---- FAN TAB (build/manage fan profiles) ----
   function newFanProfile() {
-    const next = clone(cfg);
-    next.fanProfiles = next.fanProfiles || {};
-    const id = uniqueId(slugify("New fan profile"), next.fanProfiles);
-    next.fanProfiles[id] = {
-      name: "New fan profile",
-      mode: "curve",
-      manualRpm: 3000,
-      curve: {
-        interpolate: true,
-        points: [
-          { temp: 45, rpm: 0 },
-          { temp: 55, rpm: 1800 },
-          { temp: 65, rpm: 3200 },
-          { temp: 75, rpm: 4800 },
-          { temp: 85, rpm: 6500 },
-        ],
-      },
-    };
-    setCfg(next);
-    setDirty(true);
-    setSelFan(id);
+    mutate((n) => {
+      n.fanProfiles = n.fanProfiles || {};
+      const id = uniqueId(slugify("New fan profile"), n.fanProfiles);
+      n.fanProfiles[id] = {
+        name: "New fan profile",
+        mode: "curve",
+        manualRpm: 3000,
+        // Mirrors deckops.DEFAULT_FAN_CURVE / docky.py default_config(). The
+        // frontend has no import path to the Python constant, so if you retune
+        // the starter curve, retune it in all three places -- they WILL drift
+        // otherwise.
+        curve: {
+          interpolate: true,
+          points: [
+            { temp: 45, rpm: 0 },
+            { temp: 55, rpm: 1800 },
+            { temp: 65, rpm: 3200 },
+            { temp: 75, rpm: 4800 },
+            { temp: 85, rpm: 6500 },
+          ],
+        },
+      };
+      setSelFan(id);
+    });
   }
 
   function renderFan() {
@@ -1131,6 +1180,11 @@ export const EditorModal: VFC<{
                 Applying this profile hands the fan back to SteamOS.
               </div>
             ) : null}
+            {/* No per-tab Save: edits go into the draft via mutate() and persist
+                through the top-bar Save, same as every other tab. (The old
+                "Save profile" button here called saveCfg, which writes the WHOLE
+                config -- so it would also commit pending edits from other tabs
+                under a profile-scoped label.) */}
             <div style={{ marginTop: "10px" }}>
               <DialogButton
                 disabled={busy}
@@ -1165,13 +1219,12 @@ export const EditorModal: VFC<{
 
   // ---- TDP TAB (build/manage TDP profiles) ----
   function newTdpProfile() {
-    const next = clone(cfg);
-    next.tdpProfiles = next.tdpProfiles || {};
-    const id = uniqueId(slugify("New TDP profile"), next.tdpProfiles);
-    next.tdpProfiles[id] = { name: "New TDP profile", watts: 15 };
-    setCfg(next);
-    setDirty(true);
-    setSelTdp(id);
+    mutate((n) => {
+      n.tdpProfiles = n.tdpProfiles || {};
+      const id = uniqueId(slugify("New TDP profile"), n.tdpProfiles);
+      n.tdpProfiles[id] = { name: "New TDP profile", watts: 15 };
+      setSelTdp(id);
+    });
   }
 
   function renderTdp() {
@@ -1239,10 +1292,10 @@ export const EditorModal: VFC<{
         <DialogButton disabled={busy || !dirty} onClick={saveCfg}>
           Save
         </DialogButton>
-        {/* Closing discards the unsaved draft (edits only persist on Save), so
-            this is a true cancel when there are pending changes. */}
-        <DialogButton disabled={busy} onClick={() => closeModal?.()}>
-          {dirty ? "Cancel" : "Close"}
+        {/* Closing discards the unsaved draft (edits only persist on Save). When
+            dirty, the first press arms a confirm and the second discards. */}
+        <DialogButton disabled={busy} onClick={onClosePressed}>
+          {!dirty ? "Close" : confirmCancel ? "Discard — confirm" : "Cancel"}
         </DialogButton>
       </Focusable>
       {msg ? <div style={{ fontSize: "0.8em", opacity: 0.8, marginBottom: "8px" }}>{msg}</div> : null}
@@ -1266,7 +1319,7 @@ export const EditorModal: VFC<{
         {tab === "fan" ? renderFan() : null}
         {tab === "tdp" ? renderTdp() : null}
         {tab === "sunshine" ? renderSunshine() : null}
-        {tab === "triggers" ? renderAutoDock() : null}
+        {tab === "triggers" ? renderTriggers() : null}
       </div>
     </ModalRoot>
   );

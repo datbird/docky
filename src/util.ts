@@ -1,6 +1,10 @@
 import { ServerAPI } from "decky-frontend-lib";
 
 // ---- config / state types (mirror py_modules/docky.py) ----
+//
+// This is a hand-kept mirror of the backend's config/state shapes. Where a field
+// can be null on the wire (Python returning None), the type says so — a type that
+// claims number-or-absent when the backend sends null is a lie TS can't catch.
 
 export interface Task {
   type: string;
@@ -26,6 +30,13 @@ export interface Settings {
   requireUsbHub?: boolean;
   autostartSunshine?: boolean;
   sunshineEngine?: string;
+  // Sunshine + watchdog prefs. The backend persists these in settings
+  // (docky.py default_config() + the set_force_*/watchdog handlers); the panel
+  // reads the derived values off state.sunshine, where sunshineWatchdog surfaces
+  // as watchdog — hence the two spellings.
+  forceComposition?: boolean;
+  forceHdr?: boolean;
+  sunshineWatchdog?: boolean;
   // additional triggers
   autoAcDetection?: boolean;
   acMode?: string;
@@ -80,7 +91,10 @@ export interface FanStatus {
 export interface TdpStatus {
   watts?: number | null;
   setWatts?: number;
-  max?: number;
+  // null when the device has no adjustable cap (docky.py tdp_status returns
+  // info.get("max"), which is None with no amdgpu cap). The panel reads
+  // `tdp?.max || 15`, so null is handled — but the type must admit it.
+  max?: number | null;
   enforce?: boolean;
   profile?: string;
   available?: boolean;
@@ -175,9 +189,18 @@ export function setServer(s: ServerAPI): void {
 }
 
 export function call<T = any>(method: string, args?: any): Promise<T> {
-  return server!.callPluginMethod(method, args || {}).then((res: any) => {
+  // Guard rather than assert (server!): if a call races ahead of definePlugin's
+  // setServer (a fast remount, an unlucky module-load order), the bare `!` gives
+  // "Cannot read properties of null", which tells the user nothing. errText
+  // surfaces this instead.
+  if (!server) {
+    return Promise.reject(new Error("Docky backend not ready yet — try again"));
+  }
+  return server.callPluginMethod(method, args || {}).then((res: any) => {
     if (res && res.success) return res.result as T;
-    throw new Error((res && res.result) || "call failed");
+    // On failure Decky puts the error in res.result; it's usually a string, but
+    // String() keeps "[object Object]" out of the message if it isn't.
+    throw new Error((res && res.result != null && String(res.result)) || "call failed");
   });
 }
 
@@ -189,7 +212,13 @@ export function toast(body: string): void {
   }
 }
 
+// Deep clone for in-memory editor state (duplicating an action, snapshotting for
+// undo). structuredClone round-trips everything JSON does and more; the
+// JSON fallback covers any runtime old enough to lack it. NOTE: not for anything
+// leaving the process — the save path strips client-only keys via stripTaskKeys().
 export function clone<T>(o: T): T {
+  const sc = (globalThis as any).structuredClone;
+  if (typeof sc === "function") return sc(o);
   return JSON.parse(JSON.stringify(o));
 }
 
@@ -222,6 +251,11 @@ let _taskSeq = 0;
 export function nextTaskKey(): string {
   return "tk" + ++_taskSeq;
 }
+
+// Assigns __key IN PLACE and returns the same object. The mutation is the point:
+// the keys must persist on the editor's live config across renders, so a caller
+// wanting an untouched original should pass clone(cfg). (stripTaskKeys, by
+// contrast, clones — it must not disturb the live editor state it's reading.)
 export function withTaskKeys(cfg: Config): Config {
   Object.keys(cfg.actions || {}).forEach((aid) => {
     (cfg.actions[aid].tasks || []).forEach((t) => {
@@ -230,6 +264,7 @@ export function withTaskKeys(cfg: Config): Config {
   });
   return cfg;
 }
+
 export function stripTaskKeys(cfg: Config): Config {
   const c = clone(cfg);
   Object.keys(c.actions || {}).forEach((aid) => {
@@ -244,9 +279,15 @@ export function stripTaskKeys(cfg: Config): Config {
 export function summarize(result: RunResult | undefined): string {
   if (!result) return "Done";
   if (result.message) return result.message;
+  // activate_mode returns {actions:[{results}]}, run_action returns {results}.
+  // They're mutually exclusive in the backend; pick one shape rather than
+  // summing both, so a future endpoint that carried both couldn't double-count.
   const tasks: TaskResult[] = [];
-  (result.actions || []).forEach((a) => (a.results || []).forEach((t) => tasks.push(t)));
-  (result.results || []).forEach((t) => tasks.push(t));
+  if (result.actions) {
+    result.actions.forEach((a) => (a.results || []).forEach((t) => tasks.push(t)));
+  } else if (result.results) {
+    result.results.forEach((t) => tasks.push(t));
+  }
   if (!tasks.length) return result.ok ? "OK" : "Failed";
   const fail = tasks.filter((t) => !t.ok);
   const skip = tasks.filter((t) => t.skipped);
