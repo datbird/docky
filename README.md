@@ -117,16 +117,21 @@ no toolchain.
 
 ### Install from source
 
+Building the frontend needs Node + pnpm:
+
 ```bash
 git clone https://github.com/datbird/docky.git
 cd docky
+pnpm install && pnpm run build   # build the frontend bundle (dist/index.js)
 sudo ./install.sh
 ```
 
 Re-run `install.sh` to update; `./uninstall.sh` to remove (your config is
-preserved). The frontend bundle (`dist/index.js`) is committed, so a fresh clone
-needs **no Node toolchain**. This path also installs the Desktop-Mode Steam
-autostart fix (see [Sunshine](docs/sunshine.md)), which the URL install does not.
+preserved). `dist/index.js` is a build artifact, not committed, so `install.sh`
+refuses to run until you've built it — if you don't have a Node toolchain, use
+the prebuilt Release zip above instead. This path also installs the Desktop-Mode
+Steam autostart fix (see [Sunshine](docs/sunshine.md)), which the URL install
+does not.
 
 Then: Game Mode → Quick Access (•••) → Decky → **Docky**.
 
@@ -159,6 +164,7 @@ Dock the Deck and the `Docked` mode runs automatically. Pin either mode as a
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
 | [Design notes](docs/design-notes.md) | Accepted trade-offs & known limitations, with rationale |
 | [Development](docs/development.md) | Architecture, build/dev loop, deploy |
+| [Decky integration](docs/decky-integration.md) | How the plugin plugs into Steam, the webpack/patches boundary, and marketplace precedent |
 
 ## Permissions
 

@@ -10,6 +10,14 @@ if [[ $EUID -ne 0 ]]; then echo "Re-running with sudo..."; exec sudo "$0" "$@"; 
 # Docky supersedes the standalone PCSX2 plugin; remove it if present.
 if [[ -d "$OLD" ]]; then echo "Removing superseded plugin: $OLD"; rm -rf "$OLD"; fi
 
+# The frontend bundle is a build artifact (gitignored). Build it AS YOUR USER
+# (never root) before installing:  pnpm install && pnpm run build
+if [[ ! -f "$SRC/dist/index.js" ]]; then
+  echo "ERROR: $SRC/dist/index.js is missing." >&2
+  echo "Run 'pnpm install && pnpm run build' as your normal user first, then re-run this." >&2
+  exit 1
+fi
+
 echo "Installing $SRC -> $DEST"
 rm -rf "$DEST"
 mkdir -p "$DEST/dist" "$DEST/py_modules"

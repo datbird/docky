@@ -150,6 +150,88 @@ async def _fire(mode, why):
     await asyncio.to_thread(docky.activate_mode, mode, allow_running_emu=False)
 
 
+# Resume-from-sleep is caught two ways: the FAST path is logind's
+# PrepareForSleep(false) D-Bus signal (fires the instant the system resumes, with
+# no false positives and no dependence on pollSeconds); the BACKSTOP is the
+# CLOCK_BOOTTIME-vs-MONOTONIC delta in _trigger_watch (still covers a build where
+# the signal monitor can't start). Both funnel through _handle_resume, which
+# de-dups so a single resume is acted on once even when both detectors see it.
+_RESUME_DEDUP_SECS = 30
+_last_resume_mono = 0.0
+
+
+async def _handle_resume(slept, source):
+    # Fire the resume-Mode trigger (if enabled) and rebuild Sunshine's capture —
+    # exactly once per real resume, whichever detector noticed it first. The
+    # dedup check-and-set has no await between read and write, so it's atomic
+    # against the other coroutine without a lock.
+    global _last_resume_mono
+    now = time.monotonic()
+    if now - _last_resume_mono < _RESUME_DEDUP_SECS:
+        return  # already handled this resume via the other detector
+    _last_resume_mono = now
+    try:
+        s = (await asyncio.to_thread(docky.load_config))["settings"]
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        decky.logger.exception("resume: config load failed")
+        return
+    if s.get("autoResume"):
+        detail = "" if slept is None else " (slept %ds)" % int(slept)
+        await _fire(s.get("resumeMode"), "resume via %s%s" % (source, detail))
+    # Capture health is independent of the resume-Mode trigger — always rebuild.
+    _spawn(_capture_rebuild_after_resume(slept or 0))
+
+
+async def _resume_signal_watch():
+    # Event-driven resume detection: subscribe to logind's PrepareForSleep signal
+    # so resume is caught immediately instead of on the next trigger poll (which
+    # can be as slow as pollSeconds — up to an hour). Uses `gdbus monitor` as the
+    # D-Bus reader because Decky's bundled Python ships no async D-Bus library.
+    # Degrades to the boottime poll if gdbus is absent or the monitor dies.
+    # Module-level — Decky's class wrapping breaks self.method().
+    cmd = ["gdbus", "monitor", "--system",
+           "--dest", "org.freedesktop.login1",
+           "--object-path", "/org/freedesktop/login1"]
+    fails = 0
+    while True:
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL)
+            fails = 0
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break  # monitor exited — fall through to back off + re-subscribe
+                text = line.decode("utf-8", "replace")
+                # e.g. "/org/freedesktop/login1: org.freedesktop.login1.Manager.
+                #       PrepareForSleep (false)"  — false == resuming (true == about
+                #       to sleep, which we ignore).
+                if "PrepareForSleep" in text and "false" in text:
+                    decky.logger.info("resume: PrepareForSleep(false) via logind")
+                    await _handle_resume(None, "logind signal")
+        except asyncio.CancelledError:
+            raise
+        except FileNotFoundError:
+            decky.logger.warning(
+                "resume: gdbus not found — relying on the boottime poll for resume")
+            return  # no point retrying a missing binary
+        except Exception:  # noqa: BLE001
+            decky.logger.exception("resume signal watch error")
+        finally:
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:  # noqa: BLE001
+                    pass
+        fails += 1
+        await asyncio.sleep(min(60, 5 * fails))
+
+
 async def _trigger_watch():
     # Poll all enabled triggers; on a transition activate the mapped mode. Also
     # detect resume-from-sleep via CLOCK_BOOTTIME (counts suspend) vs MONOTONIC
@@ -174,11 +256,9 @@ async def _trigger_watch():
             slept = (boot1 - boot0) - (mono1 - mono0)
             mono0, boot0 = mono1, boot1
             if not first and slept > 20:
-                if s.get("autoResume"):
-                    await _fire(s.get("resumeMode"), "resume (slept %ds)" % int(slept))
-                # Rebuild Sunshine's capture after a real sleep regardless of the
-                # resume-Mode trigger — capture health is independent of it.
-                _spawn(_capture_rebuild_after_resume(slept))
+                # Backstop for the logind PrepareForSleep signal (_resume_signal_watch);
+                # _handle_resume de-dups so this and the signal don't double-fire.
+                await _handle_resume(slept, "boottime poll")
             first = False
 
             # Collect only the baseline fields that changed, then merge them
@@ -499,6 +579,7 @@ async def _gpu_coexist_watch():
 
 class Plugin:
     _watch_task = None
+    _resume_task = None
     _autostart_task = None
     _startup_task = None
     _fan_task = None
@@ -739,6 +820,7 @@ class Plugin:
     async def _main(self):
         await asyncio.to_thread(docky.load_config)  # ensure default exists
         self._watch_task = asyncio.create_task(_trigger_watch())
+        self._resume_task = asyncio.create_task(_resume_signal_watch())
         self._autostart_task = asyncio.create_task(_autostart_sunshine())
         self._startup_task = asyncio.create_task(_startup_trigger())
         self._fan_task = asyncio.create_task(_fan_watch())
@@ -759,10 +841,10 @@ class Plugin:
         # the fan hand-back below. Same gotcha that forces the watchers module-level.
         # Include the detached tasks (_capture_rebuild_after_resume) too — one
         # surviving teardown would keep restarting Sunshine after Docky is gone.
-        own = (self._watch_task, self._autostart_task, self._startup_task,
-               self._fan_task, self._tdp_task, self._sunshine_watch_task,
-               self._mdns_task, self._gpu_task, self._gpu_release_task,
-               self._atoms_task)
+        own = (self._watch_task, self._resume_task, self._autostart_task,
+               self._startup_task, self._fan_task, self._tdp_task,
+               self._sunshine_watch_task, self._mdns_task, self._gpu_task,
+               self._gpu_release_task, self._atoms_task)
         tasks = [t for t in own if t] + list(_bg_tasks)
         for task in tasks:
             task.cancel()

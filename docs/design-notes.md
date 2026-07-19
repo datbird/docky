@@ -112,8 +112,9 @@ right tool and keeps the config hand-editable.
 
 ### Background coroutines are module-level functions, not `Plugin` methods
 Decky's class wrapping breaks `self.method()` calls from inside the backend, so
-the watchers (`_trigger_watch`, `_fan_watch`, `_tdp_watch`, `_sunshine_watch`,
-`_mdns_watch`, autostart) are module-level.
+the watchers (`_trigger_watch`, `_resume_signal_watch`, `_fan_watch`,
+`_tdp_watch`, `_sunshine_watch`, `_mdns_watch`, `_gpu_release_watch`,
+`_gpu_coexist_watch`, `_atoms_watch`, autostart) are module-level.
 
 ### Sunshine discovery is healed by re-registering, never mid-stream
 Moonlight discovery needs Sunshine's `_nvstream` mDNS record on the wire, but
@@ -173,12 +174,13 @@ pref would lie when Steam HDR is off.
 Sunshine's `capture=kms` and KWin (the KDE desktop compositor) both need
 exclusive DRM-master on `/dev/dri/card0`, and only one process can hold it. They
 therefore can't run at once — the issue is the **handoff** between Game Mode
-(Sunshine) and Desktop Mode (KWin, which is what RDP shows). A 2 s coexistence
-loop frees the GPU by **SIGKILLing Sunshine the instant gamescope stops being the
-compositor** (fast, because KWin's DRM-master retry window is only a few seconds),
-keeps Sunshine off while a Plasma session exists (the Desktop *latch*), and
-restarts Sunshine only once gamescope is **stably** back (a *debounce*, so a
-flickering/bouncing transition can't restart it mid-handoff). **Why key off
+(Sunshine) and Desktop Mode (KWin, which is what RDP shows). A fast (0.25 s)
+release loop frees the GPU by **SIGKILLing Sunshine the instant gamescope stops
+being the compositor** (within ~50 ms — fast because KWin's DRM-master retry
+window is only a few seconds), a 2 s coexistence loop keeps Sunshine off while a
+Plasma session exists (the Desktop *latch*) and restarts Sunshine only once
+gamescope is **stably** back (a *debounce*, so a flickering/bouncing transition
+can't restart it mid-handoff). **Why key off
 gamescope-gone rather than detecting Plasma:** it makes "stop Sunshine" impossible
 while Game Mode is up, so a missed detection leaves Moonlight working instead of
 killing a stream — the safe failure direction. **Why not share the GPU:** DRM
@@ -211,9 +213,12 @@ so suppressing the duplicate isn't worth the cross-component coordination.
 
 ## Packaging
 
-### `dist/index.js` is committed
-So a fresh clone installs with **no Node toolchain**; the store CI rebuilds it.
-Rebuild and commit it with any `src/` change.
+### `dist/index.js` is a gitignored build artifact
+It is **not** committed — the Decky store rebuilds the frontend from source
+(matching the official plugin template), so a committed bundle is redundant.
+`install.sh` refuses to run if it's missing; run `pnpm run build` after any
+`src/` change. **Why not commit it for Node-less installs:** ship it in Release
+zips instead, so the source tree stays free of a generated artifact.
 
 ### Asset `publicPath` uses the plugin name (`Docky`), not the install folder
 Decky serves plugin files by the **registered plugin name** (`/plugins/Docky/…`),

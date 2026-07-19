@@ -62,13 +62,15 @@ while Sunshine still holds it — and an early version of the handoff read each
 flicker as "back in Game Mode" and *restarted* Sunshine, which re-grabbed the
 GPU and perpetuated the bounce forever.
 
-**How Docky solves it — the GPU handoff.** A 2-second coexistence loop watches
-which session is active and moves the GPU with you:
+**How Docky solves it — the GPU handoff.** Two cooperating loops watch which
+session is active and move the GPU with you — a fast (0.25 s) release loop and a
+2-second coexistence loop:
 
 1. **Leaving Game Mode → free the GPU immediately.** The instant gamescope is no
-   longer the compositor, Docky **SIGKILLs Sunshine** (an immediate `force_stop`,
-   not a graceful shutdown) so `/dev/dri/card0` is free within ~2 s — inside
-   KWin's retry window, so KWin wins the node and the desktop comes up.
+   longer the compositor, the fast release loop **SIGKILLs Sunshine** (an
+   immediate `force_stop`, not a graceful shutdown) so `/dev/dri/card0` is free
+   within ~50 ms — well inside KWin's retry window, so KWin wins the node and the
+   desktop comes up.
 2. **Definitive Desktop latch.** As soon as a Plasma session exists
    (`kwin_wayland` / `plasmashell` is running), Sunshine is kept off **no matter
    what** — a gamescope process that flickers during the handoff can't revive it.

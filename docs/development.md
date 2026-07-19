@@ -4,7 +4,7 @@
 
 ```
 main.py                 Decky Plugin class + asyncio background watchers (triggers,
-                        fan, TDP, Sunshine, mDNS) + load hooks
+                        resume, fan, TDP, Sunshine, mDNS, GPU coexistence) + load hooks
 py_modules/
   docky.py              engine: config/state, run_task, action/mode runners,
                         triggers, favorites, sunshine-engine wrappers (no decky deps)
@@ -18,7 +18,7 @@ src/
   components/           EditorModal, PairModal, StatusModal, inputs
   taskdefs.ts           task-type table driving the add/edit forms
   util.ts               types + call()/toast()/clone() backend plumbing
-dist/index.js           built frontend bundle (committed — installs need no Node)
+dist/index.js           built frontend bundle (gitignored build artifact — `pnpm run build`)
 install.sh / uninstall.sh
 ```
 
@@ -77,8 +77,11 @@ happens, kill leftover `Docky (...main.py)` processes by PID and
   blocks at `api_version > 0`.
 - **Background coroutines must be module-level**, not `Plugin` methods — Decky's
   class wrapping breaks `self.method()` calls from within the backend.
-- **`dist/index.js` is committed** so fresh installs need no Node — rebuild and
-  commit it with any `src/` change.
+- **`dist/index.js` is a gitignored build artifact**, not committed — the Decky
+  store rebuilds the frontend from source (matching the official plugin
+  template), so a committed bundle is redundant. Run `pnpm run build` after any
+  `src/` change; `install.sh` refuses to run if the bundle is missing. Ship it in
+  Release zips for Node-less manual installs.
 - The frontend is gamepad-navigated: wrap side-by-side button rows in
   `<Focusable flow-children="horizontal">` so the d-pad moves left/right.
 

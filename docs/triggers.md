@@ -50,10 +50,14 @@ are checked. It's clamped to 1–3600 seconds.
 
 ## Resume detection
 
-The Deck waking from sleep is the one event that doesn't have a simple
-poll-the-state signal. Docky detects it by comparing `CLOCK_BOOTTIME` (which
-counts time spent suspended) against `CLOCK_MONOTONIC` (which doesn't): a gap
-larger than ~20 seconds means the device slept, and the resume Mode runs.
+Resume is caught two ways. The fast path subscribes to logind's
+`PrepareForSleep` D-Bus signal (via `gdbus monitor`) and fires the instant the
+device resumes — no polling delay. As a backstop, Docky also compares
+`CLOCK_BOOTTIME` (which counts time spent suspended) against `CLOCK_MONOTONIC`
+(which doesn't): a gap larger than ~20 seconds means the device slept. Both funnel
+through one handler with a 30 s de-dup, so a single resume runs the resume Mode
+exactly once even when both detectors see it (and it still works on a build where
+the signal isn't delivered).
 
 This is the trigger to use for "my settings reset after sleep" — map **Resume**
 to a Mode that re-applies your fixes (e.g. force composition + audio output).

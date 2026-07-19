@@ -11,8 +11,10 @@ Issues and pull requests are welcome.
 - Keep the change focused; describe what and why.
 - Backend: keep `py_modules/docky.py` (and the other engine modules)
   **decky-free** — only `main.py` imports `decky`.
-- Frontend: run `pnpm run build` and **commit the rebuilt `dist/index.js`** with
-  your `src/` change (installs rely on the committed bundle).
+- Frontend: run `pnpm run build` after any `src/` change, but **do not commit
+  `dist/index.js`** — it's a gitignored build artifact. The Decky store rebuilds
+  the frontend from source, and Release zips ship the prebuilt bundle; only
+  `src/` is committed. (`install.sh` refuses to run if the bundle is missing.)
 - Sanity-check before pushing:
   ```bash
   python3 -m py_compile main.py py_modules/*.py

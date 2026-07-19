@@ -11,5 +11,8 @@ __pycache__/
 *.swp
 .vscode/settings.json
 
-# NOTE: dist/ IS tracked on purpose — install.sh copies dist/index.js
-# straight from the repo, so the built bundle is committed.
+# Build output — rebuilt from src/ with `pnpm run build`. Not committed: the
+# Decky store rebuilds the frontend from source (matching the official plugin
+# template), so a committed bundle is redundant. install.sh requires you to
+# build first; ship the bundle via Release zips for Node-less manual installs.
+dist/
