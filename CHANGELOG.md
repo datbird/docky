@@ -3,6 +3,11 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.6] — 2026-07-18
+
+Finished review and testing, bumping patch version
+Finished review and testing, bumping patch version
+
 ## [1.4.5] — 2026-07-15
 
 ### Fixed
@@ -226,3 +231,4 @@ Profiles" plugin into a general Steam Deck automation tool.
 
 [1.1.0]: https://github.com/datbird/docky/releases/tag/v1.1.0
 [1.0.0]: https://github.com/datbird/docky/releases/tag/v1.0.0
+[1.4.6]: https://github.com/datbird/docky/releases/tag/v1.4.6
