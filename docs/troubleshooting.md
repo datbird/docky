@@ -40,8 +40,9 @@
 ## Settings reset after the Deck sleeps
 - Map the **Resume** trigger to a Mode that re-applies the affected tasks
   (audio output, controller binding, etc.). This is exactly what Resume is for.
-- Composition and HDR are the exception — Docky already self-heals those atoms
-  after resume, so you don't need a Resume Mode just for them.
+- Composition is the exception — Docky already self-heals that atom after
+  resume, so you don't need a Resume Mode just for it. (HDR is not self-healed;
+  it resets on resume by design — see [Sunshine → HDR](sunshine.md#hdr-game-mode).)
 
 ## Can't connect to Sunshine / "Pair" is greyed out
 - **Pair** is enabled only while Sunshine is **running**. Start it from the
@@ -80,12 +81,15 @@
   `systemctl status avahi-daemon` and `avahi-browse -rt _nvstream._tcp` (should
   list the Deck while Sunshine runs).
 
-## HDR toggle shows "off" but my display supports HDR
-- The toggle reflects the **live** gamescope HDR state, and gamescope only emits
-  HDR when **Steam → Settings → Display → HDR** is on. If that's off, the toggle
-  correctly reads off. A display *supporting* HDR isn't the same as HDR being
-  active — turn on Steam's HDR setting (and, for a stream, enable HDR + HEVC in
-  Moonlight). See [Sunshine → HDR](sunshine.md#hdr-game-mode).
+## My stream isn't HDR / where did the HDR toggle go?
+- The persistent **HDR (Game Mode)** toggle was **removed**. It never enabled
+  client-requested HDR — that's negotiated per stream between Sunshine's encoder
+  and your Moonlight client — and leaving gamescope latched in HDR made the
+  picture look wrong on every SDR client. Enable HDR + the **HEVC** codec in
+  Moonlight instead.
+- To switch the Deck's own output mode deliberately, use the `sunshine_hdr`
+  task; it needs an HDR-capable display and **Steam → Settings → Display → HDR**
+  on. See [Sunshine → HDR](sunshine.md#hdr-game-mode).
 
 ## A `bash`/`run` task fails with a library/symbol error
 - This was a known issue (Decky's bundled libraries leaking into shelled-out

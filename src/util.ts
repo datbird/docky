@@ -31,11 +31,10 @@ export interface Settings {
   autostartSunshine?: boolean;
   sunshineEngine?: string;
   // Sunshine + watchdog prefs. The backend persists these in settings
-  // (docky.py default_config() + the set_force_*/watchdog handlers); the panel
-  // reads the derived values off state.sunshine, where sunshineWatchdog surfaces
-  // as watchdog — hence the two spellings.
+  // (docky.py default_config() + the set_force_composition/watchdog handlers);
+  // the panel reads the derived values off state.sunshine, where
+  // sunshineWatchdog surfaces as watchdog — hence the two spellings.
   forceComposition?: boolean;
-  forceHdr?: boolean;
   sunshineWatchdog?: boolean;
   // additional triggers
   autoAcDetection?: boolean;
@@ -159,7 +158,6 @@ export interface DockyState {
     engine?: string;
     resolvedEngine?: string;
     forceComposition?: boolean;
-    forceHdr?: boolean;
     watchdog?: boolean;
   };
   fan?: FanStatus;

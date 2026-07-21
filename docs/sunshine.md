@@ -102,23 +102,33 @@ mapping Resume is still useful for *other* tasks (e.g. re-selecting audio output
 
 ## HDR (Game Mode)
 
-The **HDR (Game Mode)** panel toggle (and the `sunshine_hdr` task) turns
-gamescope's HDR output on or off:
+The `sunshine_hdr` task turns gamescope's HDR output on or off:
 
 - `on` — enable HDR output
 - `off` — disable it
 - `toggle` — flip the current value
 
-The toggle reflects the **live** HDR state, and because the underlying gamescope
-HDR atom is runtime-only (it resets every reboot and on resume), Docky remembers
-the preference and self-heals it — retrying at boot until the display is ready
-and reasserting it every session via the same watchdog as composition.
+It acts on the **live** gamescope HDR atom, which is runtime-only: it resets on
+every reboot and on resume-from-sleep. That is deliberate — unlike composition,
+the HDR state is **not** persisted or self-healed.
 
-HDR only *does* anything when the whole chain is HDR-ready: an HDR-capable display
-(docked), **Steam → Settings → Display → HDR** enabled, and, for a stream, an
-HDR-capable Moonlight client with HDR + the **HEVC** codec selected. If Steam's
-own HDR setting is off, gamescope isn't emitting HDR and the toggle correctly
-shows **off** — it's reporting reality, not out of sync.
+**You do not need this to stream HDR.** HDR is negotiated per stream: Sunshine
+advertises the capability from the encoder (HEVC Main10 / AV1 10-bit) and the
+Moonlight client's own HDR setting decides. Forcing the atom on doesn't grant a
+client anything it couldn't already ask for — it just changes what gamescope
+renders, which makes the picture look *wrong* on any SDR client, since it
+receives PQ-encoded frames it treats as SDR. Earlier Docky versions had a
+persistent **HDR (Game Mode)** panel toggle for this; it was removed for exactly
+that reason.
+
+Use the task only when you deliberately want to switch the Deck's own output
+mode — e.g. a Dock trigger for a real HDR TV. Even then the whole chain must be
+HDR-ready: an HDR-capable display and **Steam → Settings → Display → HDR**
+enabled. If Steam's HDR setting is off, gamescope isn't emitting HDR at all.
+
+To match HDR to what a streaming client actually requested, use a Sunshine
+**global prep command** keyed on `${SUNSHINE_CLIENT_HDR}` — it runs per session
+and is undone when the stream ends.
 
 ## Staying up and discoverable
 

@@ -79,12 +79,6 @@ def default_config():
             # and resets every boot, so Docky persists the preference here and
             # re-applies it on load and on each Sunshine (re)start.
             "forceComposition": False,
-            # Force HDR output in the Game-Mode gamescope session (its
-            # GAMESCOPE_DISPLAY_HDR_ENABLED atom). Like composition it's a
-            # runtime-only atom that resets every boot, so Docky persists the
-            # preference here and re-applies it on load. Display + content must
-            # support HDR for it to have visible effect.
-            "forceHdr": False,
             # Keep an integrated (Docky-owned) Sunshine alive: a background
             # watchdog relaunches it if it crashes (e.g. the known
             # session::video segfault). Honors an explicit Stop from the panel.
@@ -900,7 +894,6 @@ def get_state():
                          engine=sunshine_engine(cfg),
                          resolvedEngine=resolved_engine(cfg, plugins),
                          forceComposition=bool((cfg.get("settings") or {}).get("forceComposition")),
-                         forceHdr=bool((cfg.get("settings") or {}).get("forceHdr")),
                          watchdog=bool((cfg.get("settings") or {}).get("sunshineWatchdog"))),
         "fan": fan_status(cfg),
         "tdp": tdp_status(cfg),
@@ -1074,57 +1067,59 @@ def set_force_composition(enabled):
     return {"ok": ok, "message": msg, "forceComposition": enabled}
 
 
-def apply_persisted_hdr(cfg=None):
-    """Re-apply the saved force-HDR preference to gamescope's runtime atom
-    (which resets every boot). Returns (ok, message)."""
-    return sunshine.set_hdr(bool(_settings(cfg).get("forceHdr")))
+def drop_legacy_force_hdr():
+    """One-time cleanup of the removed `forceHdr` setting.
 
-
-def set_force_hdr(enabled):
-    """Persist the force-HDR preference and apply it live now."""
-    enabled = bool(enabled)
+    Nothing reads the key any more, so a leftover is inert — but a Deck that was
+    already latched into HDR when Docky updated would stay that way with no panel
+    control left to undo it (the atom only clears on the next reboot). Clear the
+    atom once, drop the key, and never touch HDR on load again.
+    """
+    _MISSING = object()
     with _config_lock:
         cfg = load_config()
-        cfg["settings"]["forceHdr"] = enabled
+        old = cfg.get("settings", {}).pop("forceHdr", _MISSING)
+        if old is _MISSING:
+            return False  # already clean (fresh install or previous run)
         save_config(cfg)
-    ok, msg = sunshine.set_hdr(enabled)
-    return {"ok": ok, "message": msg, "forceHdr": enabled}
+    was_on = bool(old)
+    if was_on and in_game_mode() and sunshine.get_hdr():
+        sunshine.set_hdr(False)
+    return was_on
 
 
 def ensure_gamescope_atoms():
-    """Self-heal the runtime gamescope atoms (force-composition, force-HDR) to
-    match the persisted preferences.
+    """Self-heal the runtime force-composition gamescope atom to match the
+    persisted preference.
 
-    These atoms are runtime-only: they reset to 0 on every reboot (and on
-    resume-from-sleep), and setting them needs gamescope's XWayland ``:0``,
+    There is deliberately no HDR equivalent: HDR is a per-stream property the
+    Moonlight client negotiates, not a host state to latch. Forcing gamescope
+    into HDR output regardless of what the client asked for made every SDR
+    client look wrong, so the persisted force-HDR preference was removed. The
+    ``sunshine_hdr`` task remains for explicit, user-driven switching.
+
+    The atom is runtime-only: it resets to 0 on every reboot (and on
+    resume-from-sleep), and setting it needs gamescope's XWayland ``:0``,
     which may not be up yet when the plugin loads on a fresh boot. The one-shot
     boot apply can therefore lose that race and fail silently, leaving a docked
     image stretched even though the setting is remembered — hence the periodic
-    heal. Cheap: reads each atom first and only writes when it's actually out of
+    heal. Cheap: reads the atom first and only writes when it's actually out of
     sync. No-ops outside Game Mode (Desktop has no gamescope ``:0`` and the
     docked-stretch fix is meaningless there).
 
-    Returns ``None`` when not applicable (not in Game Mode), ``True`` when every
-    desired-on atom is confirmed set (nothing left to heal), or ``False`` when
-    something is still out of sync (e.g. ``:0`` not ready yet) so a caller can
-    keep retrying.
+    Returns ``None`` when not applicable (not in Game Mode), ``True`` when the
+    atom is confirmed in sync (nothing left to heal), or ``False`` when it is
+    still out of sync (e.g. ``:0`` not ready yet) so a caller can keep retrying.
     """
     if not in_game_mode():
         return None
-    settings = _settings()
-    in_sync = True
-    for want, getter, setter, label in (
-        (bool(settings.get("forceComposition")),
-         sunshine.get_composition, sunshine.set_composition, "composition"),
-        (bool(settings.get("forceHdr")),
-         sunshine.get_hdr, sunshine.set_hdr, "HDR"),
-    ):
-        if not want or getter():
-            continue  # setting off (atom naturally 0), or already applied
-        set_ok, _ = setter(True)
-        if not (set_ok and getter()):
-            in_sync = False  # couldn't set / didn't take — :0 likely not ready
-    return in_sync
+    if not bool(_settings().get("forceComposition")):
+        return True  # setting off — atom is naturally 0, nothing to heal
+    if sunshine.get_composition():
+        return True  # already applied
+    set_ok, _ = sunshine.set_composition(True)
+    # couldn't set / didn't take — :0 likely not ready, let the caller retry
+    return bool(set_ok and sunshine.get_composition())
 
 
 def set_sunshine_watchdog(enabled):

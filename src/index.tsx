@@ -579,17 +579,6 @@ const Content: VFC = () => {
             </PanelSectionRow>
             <PanelSectionRow>
               <ToggleField
-                label="HDR (Game Mode)"
-                description="Enables HDR output; re-applied automatically after reboots. Display and content must support HDR."
-                checked={!!(sun && sun.forceHdr)}
-                disabled={busy}
-                onChange={(v: boolean) =>
-                  sunshineToggle("set_force_hdr", "forceHdr", v, "Updating HDR")
-                }
-              />
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <ToggleField
                 label="Keep Sunshine running"
                 // Defaults ON: watchdog is enabled unless the backend explicitly
                 // sends watchdog:false. This is the one toggle that inverts (the

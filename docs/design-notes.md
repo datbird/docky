@@ -156,19 +156,34 @@ unfixable failure (no encoder at all) can't restart-loop. It shares one watchdog
 (`_sunshine_watch`) with crash-relaunch, so the two failure modes have a single
 owner and can't race to restart.
 
-### Composition/HDR gamescope atoms are runtime-only, so the preference is persisted
-`GAMESCOPE_COMPOSITE_FORCE` and `GAMESCOPE_DISPLAY_HDR_ENABLED` are runtime state
-that resets every reboot (and on resume-from-sleep). Docky persists the
-*preference* (`forceComposition` / `forceHdr`) and self-heals the atoms to match.
-Setting an atom needs gamescope's XWayland `:0`, which isn't always up when the
-plugin loads — a one-shot boot apply could lose that race and silently leave a
-docked image stretched — so the boot apply *retries* until the atom takes, and a
-15 s watchdog (`_atoms_watch` → `ensure_gamescope_atoms`) reasserts it for the
-whole session. That read-before-write watchdog also covers resume and display
-changes; it no-ops outside Game Mode (Desktop has no gamescope `:0`). The HDR toggle
-reads the **live** atom, so it reflects reality even when Steam's own Display→HDR
-setting is what's driving (or not driving) it — a toggle that showed the persisted
-pref would lie when Steam HDR is off.
+### The composition gamescope atom is runtime-only, so the preference is persisted
+`GAMESCOPE_COMPOSITE_FORCE` is runtime state that resets every reboot (and on
+resume-from-sleep). Docky persists the *preference* (`forceComposition`) and
+self-heals the atom to match. Setting it needs gamescope's XWayland `:0`, which
+isn't always up when the plugin loads — a one-shot boot apply could lose that
+race and silently leave a docked image stretched — so the boot apply *retries*
+until the atom takes, and a 15 s watchdog (`_atoms_watch` →
+`ensure_gamescope_atoms`) reasserts it for the whole session. That
+read-before-write watchdog also covers resume and display changes; it no-ops
+outside Game Mode (Desktop has no gamescope `:0`).
+
+### HDR is per-stream, so it is deliberately *not* persisted
+`GAMESCOPE_DISPLAY_HDR_ENABLED` was once persisted the same way, via a
+`forceHdr` setting and a panel toggle. That was a design error, on a wrong
+premise: enabling the atom is **not** what allows a Moonlight client to request
+an HDR stream. HDR is negotiated in the streaming protocol — Sunshine advertises
+the capability from the *encoder* (HEVC Main10 / AV1 10-bit), and the client's
+own HDR setting decides. The atom only changes what gamescope renders and scans
+out. Latching it on therefore did nothing to enable client-requested HDR while
+actively breaking every SDR client, which received PQ-encoded frames it treated
+as SDR. It also stayed on with nobody streaming.
+
+The setting and its self-heal are gone. The `sunshine_hdr` task remains for
+explicit, user-driven switching (a real HDR TV on a Dock trigger, say), where the
+user is choosing the output mode deliberately rather than having it latched.
+Matching HDR to what a client actually asked for belongs in a Sunshine
+`global_prep_cmd` keyed on `${SUNSHINE_CLIENT_HDR}`, which is per-session and
+undone when the stream ends.
 
 ### Streaming and the desktop can't share the GPU, so Docky hands it off
 Sunshine's `capture=kms` and KWin (the KDE desktop compositor) both need

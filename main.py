@@ -397,20 +397,20 @@ async def _autostart_sunshine():
 
 
 async def _atoms_watch():
-    # Keep the runtime gamescope atoms (force-composition, force-HDR) matching
-    # the saved preferences for the whole session. Both reset every reboot AND on
+    # Keep the runtime force-composition gamescope atom matching the saved
+    # preference for the whole session. It resets every reboot AND on
     # resume-from-sleep, and can be dropped by display/mode changes. Cheap (reads
     # before writing, no-ops outside Game Mode). Module-level — Decky's class
     # wrapping breaks self.*.
     #
-    # Boot phase first: setting the atoms needs gamescope's XWayland :0, which
+    # Boot phase first: setting the atom needs gamescope's XWayland :0, which
     # may not be up yet when the plugin loads, so a one-shot apply can lose that
     # race and silently leave the docked image stretched. Retry fast (~60s) until
-    # the atoms confirm, then settle into the periodic heal.
+    # the atom confirms, then settle into the periodic heal.
     #
     # This was two tasks — a 2s _startup_composition and a 15s _atoms_watch —
     # which overlapped from t=15s to t=60s, both driving the same xprop reads and
-    # writes against the same atoms. One owner, two phases.
+    # writes against the same atom. One owner, two phases.
     for _ in range(30):
         try:
             res = await asyncio.to_thread(docky.ensure_gamescope_atoms)
@@ -419,7 +419,7 @@ async def _atoms_watch():
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
-            decky.logger.exception("startup composition/HDR apply failed")
+            decky.logger.exception("startup composition apply failed")
         await asyncio.sleep(2)
 
     while True:
@@ -705,13 +705,6 @@ class Plugin:
             decky.logger.exception("set_force_composition failed")
             return {"ok": False, "message": str(e)}
 
-    async def set_force_hdr(self, enabled):
-        try:
-            return await _call(docky.set_force_hdr, enabled)
-        except Exception as e:  # noqa: BLE001
-            decky.logger.exception("set_force_hdr failed")
-            return {"ok": False, "message": str(e)}
-
     async def set_sunshine_watchdog(self, enabled):
         try:
             return await _call(docky.set_sunshine_watchdog, enabled)
@@ -819,6 +812,12 @@ class Plugin:
 
     async def _main(self):
         await asyncio.to_thread(docky.load_config)  # ensure default exists
+        try:
+            # One-time: retire the removed forceHdr setting (and unlatch HDR if
+            # this Deck was still holding it on from the old toggle).
+            await asyncio.to_thread(docky.drop_legacy_force_hdr)
+        except Exception:  # noqa: BLE001
+            decky.logger.exception("forceHdr cleanup failed")
         self._watch_task = asyncio.create_task(_trigger_watch())
         self._resume_task = asyncio.create_task(_resume_signal_watch())
         self._autostart_task = asyncio.create_task(_autostart_sunshine())

@@ -43,7 +43,7 @@ Trigger— an event (dock/undock, AC, controller, resume, startup) → a Mode
 - **Favorites** — pin the actions/modes you use most to the panel; stateful ones
   (like force-composition) show a live on/off LED.
 - **Sunshine** — install/update from Flathub, start/stop/restart, set the
-  encoder, force composition, toggle Game-Mode **HDR**, and pair/manage Moonlight
+  encoder, force composition, and pair/manage Moonlight
   clients — or defer to the `decky-sunshine` plugin (auto-detected). A **watchdog**
   relaunches it if it crashes **and rebuilds its screen capture if it can't grab the
   display** — the docked-boot / resume / dock-change *"Error 503"* — and Docky keeps
@@ -88,7 +88,7 @@ Trigger— an event (dock/undock, AC, controller, resume, startup) → a Mode
   <tr>
     <td valign="top" align="center">
       <img src="docs/images/sunshine-panel.png" width="240"><br>
-      <sub>Sunshine — start/pair, composition, HDR, keep-alive</sub>
+      <sub>Sunshine — start/pair, composition, keep-alive</sub>
     </td>
     <td valign="top" align="center">
       <img src="docs/images/decky-menu.png" width="300"><br>
@@ -158,7 +158,7 @@ Dock the Deck and the `Docked` mode runs automatically. Pin either mode as a
 | [Task reference](docs/tasks.md) | Every task type, its fields, and examples |
 | [Performance](docs/performance.md) | Fan curve/manual, TDP cap + enforcement, profiles |
 | [Triggers](docs/triggers.md) | All triggers, dock detection, mode mapping |
-| [Sunshine](docs/sunshine.md) | Engine selection, install/update, pairing, encoder, composition, HDR, watchdog & discovery |
+| [Sunshine](docs/sunshine.md) | Engine selection, install/update, pairing, encoder, composition, watchdog & discovery |
 | [Streaming ⇄ Desktop](docs/gpu-coexistence.md) | Why Moonlight (Sunshine) and Desktop-Mode RDP share one GPU, and how the handoff + Steam wrapper let you move between them |
 | [Configuration](docs/configuration.md) | `config.json` / `state.json` reference |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
