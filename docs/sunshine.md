@@ -64,8 +64,13 @@ Panel → **Pair** (enabled once Sunshine is running). The Pair modal:
    credentials (this resets the username/password; **existing paired devices are
    kept**).
 2. In Moonlight, select the Deck — it shows a PIN.
-3. Enter the PIN in Docky. Paired devices are listed with per-device
-   **Enable/Disable** and **Unpair**, plus **Unpair all**.
+3. Enter the PIN in Docky and press **Enter** on the on-screen keyboard (or the
+   **Pair** button — either works, including while the keyboard is still open).
+   The result comes back as an **OK dialog**. Paired devices are listed with
+   per-device **Enable/Disable** and **Unpair**, plus **Unpair all**.
+
+> Moonlight stops waiting after a while. If pairing fails, re-select the Deck in
+> Moonlight for a fresh PIN rather than reusing the expired one.
 
 A **disabled** device stays paired but can't connect until re-enabled.
 
@@ -74,6 +79,35 @@ A **disabled** device stays paired but can't connect until re-enabled.
 The `sunshine_encoder` task (or the editor) sets Sunshine's video encoder:
 `` (auto), `vaapi` (recommended on the Deck's AMD GPU), `vulkan`, or `software`.
 Sunshine reads its config at launch, so the change applies on the next start.
+
+## HEVC / HDR support
+
+Panel → Sunshine → **HEVC / HDR support**. Writes Sunshine's `hevc_mode` and
+restarts Sunshine to apply.
+
+| Toggle | `hevc_mode` | Effect |
+| --- | --- | --- |
+| **On** | `3` | Advertise HEVC Main + **Main10**, the only profile that carries HDR. |
+| **Off** | `1` | Don't advertise HEVC — clients fall back to H.264. |
+
+**HDR needs this on.** H.264 is 8-bit only and cannot carry HDR, and the Deck's
+APU has no AV1 encode block (`No usable encoding entrypoint found for profile
+VAProfileAV1Profile0` at every Sunshine start — that's hardware, not a fault).
+HEVC is the only route, so with this off there is no HDR, whatever the client
+asks for and whatever the Deck's own panel is doing.
+
+**Expect problems when it's on.** HEVC on the Deck is slower and jankier than
+H.264, and on some hosts the vaapi HEVC encoder emits a keyframe the client
+can't decode — a connected session with working audio and input, and a black
+picture. That's why it defaults off. See
+[Troubleshooting → black screen](troubleshooting.md#moonlight-connects-audio-and-input-work-but-the-picture-is-black).
+
+It affects **every** client, not just the one you're testing: Moonlight set to
+*Automatic* prefers HEVC as soon as the host offers it. That's why turning it on
+asks for confirmation and turning it off doesn't.
+
+Sunshine restarts to apply — **except while a client is streaming**, where the
+setting is saved and applies once that session ends rather than dropping it.
 
 ## Composition (the docked stretch fix)
 

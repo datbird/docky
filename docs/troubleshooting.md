@@ -81,12 +81,38 @@
   `systemctl status avahi-daemon` and `avahi-browse -rt _nvstream._tcp` (should
   list the Deck while Sunshine runs).
 
+## Moonlight connects, audio and input work, but the picture is black
+- Almost always **HEVC**. The Deck's vaapi HEVC encoder can emit a keyframe the
+  client cannot decode, so the session is healthy in every other respect — you
+  can hear it, and you can see your cursor moving on the Deck itself — while the
+  video stays black. Sunshine's log shows it plainly:
+  ```
+  Creating encoder [hevc_vaapi]
+  Error: Failed to read unit 3 (type 19): Invalid data found when processing input.
+  Warning: vaapi: hevc missing sps->vui parameters
+  ```
+  (`unit type 19` is the IDR keyframe.) A session that used `h264_vaapi` logs
+  none of this.
+- **Fix:** Panel → Sunshine → turn **HEVC / HDR support** off. Clients then get
+  H.264 and the picture returns — including clients set to *Automatic*, which
+  otherwise keep choosing HEVC because the host advertises it.
+- Per-client alternative: set **Video codec: H.264** in that Moonlight client's
+  settings. Only fixes the device you change; every new device hits it again.
+- Sunshine advertises HEVC from an encoder-open probe, which proves only that
+  the encoder *starts* — not that its output is decodable. That's why
+  *Automatic* picks a codec that doesn't work.
+
 ## My stream isn't HDR / where did the HDR toggle go?
+- **HDR needs HEVC.** Turn on Panel → Sunshine → **HEVC / HDR support** (H.264
+  is 8-bit and can't carry HDR; the Deck has no AV1 encoder), then enable HDR in
+  your Moonlight client. Read the black-screen entry above first — on this
+  hardware HEVC may not work at all, in which case HDR isn't reachable until a
+  Mesa/Sunshine update fixes the encoder.
 - The persistent **HDR (Game Mode)** toggle was **removed**. It never enabled
   client-requested HDR — that's negotiated per stream between Sunshine's encoder
   and your Moonlight client — and leaving gamescope latched in HDR made the
-  picture look wrong on every SDR client. Enable HDR + the **HEVC** codec in
-  Moonlight instead.
+  picture look wrong on every SDR client. The Deck's own panel being in HDR
+  (`GAMESCOPE_DISPLAY_HDR_ENABLED = 1`) does **not** make the stream HDR.
 - To switch the Deck's own output mode deliberately, use the `sunshine_hdr`
   task; it needs an HDR-capable display and **Steam → Settings → Display → HDR**
   on. See [Sunshine → HDR](sunshine.md#hdr-game-mode).

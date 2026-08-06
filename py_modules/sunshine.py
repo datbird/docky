@@ -701,6 +701,55 @@ def set_encoder(value):
     return True, "encoder set to %s (applies on next start)" % (value or "auto")
 
 
+# Sunshine's `hevc_mode` (values straight from its own config UI):
+#   0  advertise HEVC based on encoder capabilities (Sunshine's default)
+#   1  do not advertise HEVC
+#   2  advertise HEVC Main
+#   3  advertise HEVC Main and Main10 (HDR)
+# Docky exposes this as one on/off switch: ON = 3, because Main10 is the only
+# profile that can carry HDR and being explicit beats letting capability
+# detection decide. OFF = 1, which is a hard "don't offer it" -- necessary
+# because a client set to "Automatic" will otherwise pick HEVC whenever the host
+# claims support, and the claim is made from an encoder-open probe that does not
+# prove the bitstream is usable.
+HEVC_ON = 3
+HEVC_OFF = 1
+
+
+def get_hevc():
+    """True when Sunshine will advertise HEVC to clients.
+
+    Only mode 1 is "off"; an absent key means Sunshine's default of 0, which DOES
+    advertise HEVC when the encoder supports it -- so absent must read as True or
+    the panel would show a switch that disagrees with what clients are offered."""
+    try:
+        with open(CONF_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                key, _, val = line.partition("=")
+                if key.strip().lower() == "hevc_mode":
+                    return val.strip() != str(HEVC_OFF)
+    except OSError:
+        pass
+    return True
+
+
+def set_hevc(enabled):
+    """Write `hevc_mode` into Sunshine's config. Sunshine reads its config at
+    launch, so the caller is responsible for restarting it. Returns (ok, message)."""
+    value = HEVC_ON if enabled else HEVC_OFF
+    try:
+        lines = []
+        if os.path.isfile(CONF_PATH):
+            with open(CONF_PATH, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        kept = [ln for ln in lines if ln.partition("=")[0].strip().lower() != "hevc_mode"]
+        kept.append("hevc_mode = %d" % value)
+        _atomic_write(CONF_PATH, "\n".join(kept) + "\n")
+    except OSError as e:
+        return False, "could not write Sunshine config: %s" % e
+    return True, "HEVC " + ("enabled" if enabled else "disabled")
+
+
 def status():
     return {"installed": is_installed(), "running": is_running()}
 

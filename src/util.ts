@@ -158,6 +158,10 @@ export interface DockyState {
     engine?: string;
     resolvedEngine?: string;
     forceComposition?: boolean;
+    // Read from Sunshine's config (hevc_mode), NOT Docky's settings. Absent
+    // means Sunshine's default, which advertises HEVC — so consumers must treat
+    // undefined as true, not false.
+    hevc?: boolean;
     watchdog?: boolean;
   };
   fan?: FanStatus;

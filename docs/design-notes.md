@@ -32,6 +32,74 @@ uses a `−`/`+` stepper built only from components the runtime guarantees
 **Why not bundle `SliderField`:** it resolves Steam's slider through a webpack
 lookup that isn't reliably reachable from a bundled copy.
 
+### Buttons behind the on-screen keyboard fire on `pointerdown`, not `click`
+While Steam's virtual keyboard is open, a press on a button underneath it
+delivers `pointerdown` **to the button** but the following `click` is retargeted
+to the element below — so React's `onClick` never runs. The press is a complete
+no-op: no request, no message, no log line. Recorded on-device via CDP:
+
+```
+pointerdown -> BUTTON "Pair"   click -> DIV      (swallowed)
+pointerdown -> BUTTON "Pair"   click -> BUTTON   (works)
+```
+
+This is **not** "press twice" — while the keyboard stays up *every* click is
+swallowed, so a keyboard-driven form is unusable until the keyboard is dismissed.
+`PairModal` therefore binds `onPointerDown` **as well as** `onClick`, behind a
+500 ms timestamp guard (`activate()`) that collapses the two events of one normal
+press into a single activation. **Why the guard:** with the keyboard closed both
+events reach the button ~160 ms apart, and a doubled submit would fire two
+Sunshine API calls. Any future modal with a text field above a submit button
+needs the same treatment.
+
+### DFL's `TextFieldProps` advertises `onKeyDown`; Steam's component drops it
+`TextFieldProps extends HTMLAttributes<HTMLInputElement>`, so passing `onKeyDown`
+type-checks — but that interface is DFL's hand-written description of a component
+it locates by sniffing a Steam module at runtime, and the real component doesn't
+forward the prop. Verified on-device: the virtual keyboard delivers a genuine
+`keydown["Enter"]` to the input element while a `TextField`-level `onKeyDown`
+never ran. `TextRow`'s `onEnter` therefore listens on a **wrapper element in the
+capture phase**, which sees the event on its way down regardless of what the
+component forwards — and can't be hidden by an inner `stopPropagation`. Same
+lesson as `bIsPassword` and `SliderField`: **the npm types describe the intended
+shape, not what the injected runtime actually honours.** Verify props on-device.
+
+### Modal results go to an OK dialog, not inline text
+`PairModal` reports terminal pair/login results through `ConfirmModal`
+(`bAlertDialog`). Inline text failed these flows twice over: the on-screen
+keyboard covers the bottom of the screen where the status used to render, and
+text that appears and disappears reflows the modal, which reads as the page
+twitching rather than as an answer. Both produced the same user-visible symptom —
+a completed action that looked like nothing happened. The remaining inline status
+row is transient progress only and holds its height unconditionally so it can't
+reflow. Client-list mutations (unpair/enable/disable) stay inline on purpose: the
+row visibly changing is already unambiguous feedback.
+
+### HEVC is exposed as a switch, defaults off, and lives only in Sunshine's config
+`hevc_mode` is the only route to HDR (H.264 is 8-bit; Van Gogh has no AV1 encode
+block), but HEVC on the Deck is slower than H.264 and its vaapi encoder can emit
+an IDR the client can't decode — a connected session with sound, input, and a
+black picture. So it's a switch the user opts into, not a default: **on = 3**
+(Main + Main10, explicit about HDR rather than leaving it to capability
+detection), **off = 1** (a hard "don't offer it", because a client on *Automatic*
+takes HEVC whenever the host advertises it).
+
+**Why off is `1` and not simply unset:** Sunshine's default is `0`, which
+advertises HEVC whenever the encoder opens — and opening proves nothing about
+whether the bitstream decodes. Unset would silently re-enable the broken path.
+`get_hevc()` therefore reads an absent key as **on**, so the panel can't show a
+switch that disagrees with what clients are offered.
+
+**Why the state isn't mirrored into Docky's settings:** Sunshine's config is the
+single source of truth, as it already is for `encoder`. A mirror can drift — the
+file gets hand-edited or restored from a backup — and then the panel reports a
+setting that isn't in force.
+
+**Why it restarts Sunshine:** the config is read at launch, so writing alone
+leaves the switch lying until something else restarts it. The restart is skipped
+while `is_streaming()`, the same guard the mDNS re-register and capture-rebuild
+paths use; the value is saved and applies when that session ends.
+
 ## Performance & hardware
 
 ### "Hand control back to SteamOS" lifts the TDP cap to the hardware max, not 15 W

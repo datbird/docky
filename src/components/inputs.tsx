@@ -17,16 +17,43 @@ export const Card: VFC<{ title: string; children: any }> = ({ title, children })
   </div>
 );
 
-export const TextRow: VFC<{ label: string; value?: string; password?: boolean; onChange: (v: string) => void }> = (props) => {
+export const TextRow: VFC<{
+  label: string;
+  value?: string;
+  password?: boolean;
+  onChange: (v: string) => void;
+  onEnter?: () => void;
+}> = (props) => {
   // NOTE: verify `bIsPassword` is the masking prop in THIS build of the injected
   // decky-frontend-lib. It's cast through `any`, so a wrong name (e.g. the field
   // wants type="password") fails silently -- the input renders in plaintext with
   // no type error. The only caller that relies on masking is PairModal; if a
   // password ever shows unmasked, this is the first place to look.
   const extra: any = props.password ? { bIsPassword: true } : {};
+  // `onEnter` submits from the field itself so the user never has to press a
+  // button while Steam's on-screen keyboard is up -- see the swallowed-click
+  // note on `activate` in PairModal.
+  //
+  // The handler goes on a WRAPPER in the capture phase, NOT on <TextField>.
+  // TextFieldProps declares `extends HTMLAttributes<HTMLInputElement>`, so
+  // passing onKeyDown type-checks -- but that interface is DFL's hand-written
+  // description of a component it finds by sniffing a Steam module at runtime
+  // (see TextField.tsx), and Steam's real component does NOT forward onKeyDown
+  // to the input. Verified on-device: the virtual keyboard delivers a genuine
+  // keydown["Enter"] to the input element, and a TextField-level onKeyDown
+  // never ran. Capture phase (not bubble) so an inner stopPropagation can't
+  // hide the key from us either.
+  const wrap = (node: any) =>
+    props.onEnter ? (
+      <div onKeyDownCapture={(e: any) => { if (e?.key === "Enter") props.onEnter!(); }}>{node}</div>
+    ) : (
+      node
+    );
   return (
     <Field label={props.label} childrenLayout="below" bottomSeparator="none">
-      <TextField {...extra} value={props.value || ""} onChange={(e) => props.onChange(e.target.value)} />
+      {wrap(
+        <TextField {...extra} value={props.value || ""} onChange={(e) => props.onChange(e.target.value)} />,
+      )}
     </Field>
   );
 };

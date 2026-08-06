@@ -894,6 +894,9 @@ def get_state():
                          engine=sunshine_engine(cfg),
                          resolvedEngine=resolved_engine(cfg, plugins),
                          forceComposition=bool((cfg.get("settings") or {}).get("forceComposition")),
+                         # Read from Sunshine's own config, not Docky's settings —
+                         # see set_sunshine_hevc for why it isn't mirrored.
+                         hevc=sunshine.get_hevc(),
                          watchdog=bool((cfg.get("settings") or {}).get("sunshineWatchdog"))),
         "fan": fan_status(cfg),
         "tdp": tdp_status(cfg),
@@ -1120,6 +1123,39 @@ def ensure_gamescope_atoms():
     set_ok, _ = sunshine.set_composition(True)
     # couldn't set / didn't take — :0 likely not ready, let the caller retry
     return bool(set_ok and sunshine.get_composition())
+
+
+def set_sunshine_hevc(enabled):
+    """Turn Sunshine's HEVC advertisement on/off, restarting it to apply.
+
+    Sunshine's config is the single source of truth here -- deliberately NOT
+    mirrored into Docky's settings, the same choice `encoder` makes. A mirror
+    could drift from the file (edited by hand, restored from a backup) and then
+    the panel would confidently show the wrong state.
+
+    Sunshine only reads its config at launch, so a write alone leaves the switch
+    disagreeing with what clients are actually offered. We therefore restart it
+    -- EXCEPT while a client is streaming, where `is_streaming()` is the
+    project-wide guard against dropping a live session (see the mDNS re-register
+    and capture-rebuild paths, which all defer the same way). The setting is
+    still saved; it takes effect the next time Sunshine starts."""
+    enabled = bool(enabled)
+    ok, msg = sunshine.set_hevc(enabled)
+    if not ok:
+        return {"ok": False, "message": msg, "hevc": sunshine.get_hevc()}
+
+    if not sunshine.is_running():
+        return {"ok": True, "hevc": enabled,
+                "message": msg + " (applies when Sunshine starts)"}
+    if sunshine.is_streaming():
+        return {"ok": True, "hevc": enabled,
+                "message": msg + " — saved, but a stream is live; applies after it ends"}
+
+    rok, rmsg = sunshine.restart()
+    if not rok:
+        return {"ok": False, "hevc": enabled,
+                "message": msg + ", but Sunshine didn't restart: " + rmsg}
+    return {"ok": True, "hevc": enabled, "message": msg + " (Sunshine restarted)"}
 
 
 def set_sunshine_watchdog(enabled):

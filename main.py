@@ -705,6 +705,17 @@ class Plugin:
             decky.logger.exception("set_force_composition failed")
             return {"ok": False, "message": str(e)}
 
+    # Can restart Sunshine (to apply hevc_mode), so it takes the same start lock
+    # sunshine_start/stop/restart do — otherwise a toggle racing an autostart or a
+    # coexistence handoff could interleave two lifecycle operations.
+    async def set_sunshine_hevc(self, enabled):
+        try:
+            async with _sunshine_start_lock:
+                return await _call(docky.set_sunshine_hevc, enabled)
+        except Exception as e:  # noqa: BLE001
+            decky.logger.exception("set_sunshine_hevc failed")
+            return {"ok": False, "message": str(e)}
+
     async def set_sunshine_watchdog(self, enabled):
         try:
             return await _call(docky.set_sunshine_watchdog, enabled)

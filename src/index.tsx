@@ -10,6 +10,7 @@ import {
   Focusable,
   ToggleField,
   showModal,
+  ConfirmModal,
 } from "decky-frontend-lib";
 import { DockyState, RunResult, call, errText, setServer, summarize, toast } from "./util";
 import { Stepper } from "./components/inputs";
@@ -349,6 +350,33 @@ const Content: VFC = () => {
     });
   }
 
+  // HEVC is the only codec that can carry HDR, but on this hardware it is also
+  // the one that misbehaves — so enabling it is a deliberate trade, not a
+  // preference. Turning it ON asks first; turning it OFF is immediate, because
+  // returning to the working configuration should never need permission.
+  function toggleHevc(v: boolean) {
+    if (!v) {
+      sunshineToggle("set_sunshine_hevc", "hevc", false, "Disabling HEVC");
+      return;
+    }
+    showModal(
+      <ConfirmModal
+        strTitle="Enable HEVC / HDR?"
+        strDescription={
+          "HEVC is required for HDR streaming, but on the Steam Deck it is known to " +
+          "stutter, run slower than H.264, and on some hosts produce a black screen " +
+          "with working audio and input.\n\n" +
+          "Clients set to 'Automatic' will prefer HEVC once it's offered, so this " +
+          "affects every device — not just the one you're testing.\n\n" +
+          "Sunshine restarts to apply (a live stream is left alone; it applies afterwards)."
+        }
+        strOKButtonText="Enable anyway"
+        strCancelButtonText="Cancel"
+        onOK={() => sunshineToggle("set_sunshine_hevc", "hevc", true, "Enabling HEVC")}
+      />,
+    );
+  }
+
   function setFanMode(mode: "auto" | "manual" | "curve") {
     fanTdpCall("set_fan_mode", { mode }, "Fan: " + mode);
   }
@@ -575,6 +603,18 @@ const Content: VFC = () => {
                 onChange={(v: boolean) =>
                   sunshineToggle("set_force_composition", "forceComposition", v, "Updating composition")
                 }
+              />
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ToggleField
+                label="HEVC / HDR support"
+                // Defaults ON in Sunshine (hevc_mode 0 advertises HEVC when the
+                // encoder supports it), so this reads `!== false` rather than the
+                // `!!` the other toggles use — an absent value means "advertised".
+                description="Required for HDR. Expect stutter, lower performance, and possible black screens — leave off unless you specifically want HDR."
+                checked={!(sun && sun.hevc === false)}
+                disabled={busy}
+                onChange={toggleHevc}
               />
             </PanelSectionRow>
             <PanelSectionRow>
