@@ -3,6 +3,10 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.8] — 2026-08-06
+
+pumping version to reflack last commit/push
+
 ## [1.4.7] — 2026-07-21
 
 bumping release to remove hdr toggle from release
@@ -238,3 +242,4 @@ Profiles" plugin into a general Steam Deck automation tool.
 [1.0.0]: https://github.com/datbird/docky/releases/tag/v1.0.0
 [1.4.6]: https://github.com/datbird/docky/releases/tag/v1.4.6
 [1.4.7]: https://github.com/datbird/docky/releases/tag/v1.4.7
+[1.4.8]: https://github.com/datbird/docky/releases/tag/v1.4.8
