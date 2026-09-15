@@ -702,6 +702,20 @@ def fan_release():
     return deckops.restore_auto_fan()
 
 
+def fan_handback_if_owned():
+    """Restart SteamOS's fan daemon if it is currently stopped.
+
+    The unload path calls this. A stopped `jupiter-fan-control` with `fan1_target`
+    still holding Docky's last value is the one state an unload must never leave
+    behind, and it is the state Docky itself creates while it owns the fan. Cheap
+    when there is nothing to do: one `systemctl is-active`. Blocking, so call it
+    in a thread. Returns True if the fan was handed back."""
+    if deckops.jupiter_fan_active():
+        return False
+    fan_release()
+    return True
+
+
 def _apply_or_release_fan(cfg):
     """Apply the fan settings in `cfg` (or hand the fan back if they say auto).
     Call OUTSIDE _config_lock — this can spend seconds in `systemctl`."""

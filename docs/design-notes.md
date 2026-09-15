@@ -175,6 +175,26 @@ only, so the user could swap the whole directory. The cost is that hand-editing
 now needs `sudo`; the panel is unaffected. `migrate_legacy_config()` imports the
 old file once and renames it `.migrated`.
 
+### Unload hands the fan back first, then waits 1.2 s for the watchers
+Decky sends a stop request and **SIGKILLs the plugin 5 s later**, so `_unload`
+has a hard budget. The fan hand-back used to ride on `_fan_watch`'s
+`CancelledError` handler, which cannot be relied on: the watcher spends most of
+its life inside `await asyncio.to_thread(_fan_tick, ...)`, and cancelling a
+thread that has already started does not interrupt it. The `CancelledError`
+arrives only when the thread returns, which can be a `systemctl` call away (up to
+15 s), by which point the process is gone. The fan would then stay pinned at
+Docky's last target with `jupiter-fan-control` stopped, the exact state the
+handler exists to prevent. `_unload` now calls `docky.fan_handback_if_owned()`
+itself, bounded at 2.5 s, before cancelling anything; the watcher's handler stays
+as a fallback because handing back twice costs one `systemctl is-active`. The
+gather that follows is capped at **1.2 s, not 20 s**: past 5 s there is no
+process left, so a longer wait only delays the log line.
+
+**Sunshine and its `bwrap` child are deliberately NOT killed here.** They are
+`setsid`-detached so a plugin_loader restart never interrupts a live stream, the
+same thing `decky-sunshine` does. systemd logging them as left-over processes is
+noise, not a leak.
+
 ### `is_running()` (Sunshine) is intentionally **not** cached
 It's polled every 0.25 s inside the Sunshine start/stop wait loops; a TTL cache
 would return stale values and break those loops. A single `pgrep` per state-poll

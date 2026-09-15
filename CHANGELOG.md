@@ -3,6 +3,11 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.10] — 2026-09-15
+
+Hand the fan back before Decky SIGKILLs the plugin at 5 seconds
+_unload now calls fan_handback_if_owned itself, bounded at 2.5 seconds, before it cancels anything. The hand-back used to ride on the fan watcher cancel handler, which could not work: the watcher sits in a worker thread, and cancelling a thread that has already started does not interrupt it, so the CancelledError only arrives when the thread returns, up to a 15 second systemctl call later. By then the process is gone and the fan is left pinned with jupiter-fan-control stopped. The wait for the watchers is now 1.2 seconds instead of 20, since nothing survives past 5. Sunshine and its bwrap child are still left running on purpose, so a loader restart never interrupts a live stream.
+
 ## [1.4.9] — 2026-09-15
 
 Move the config to /var/lib/docky to close a deck to root escalation
@@ -249,3 +254,4 @@ Profiles" plugin into a general Steam Deck automation tool.
 [1.4.7]: https://github.com/datbird/docky/releases/tag/v1.4.7
 [1.4.8]: https://github.com/datbird/docky/releases/tag/v1.4.8
 [1.4.9]: https://github.com/datbird/docky/releases/tag/v1.4.9
+[1.4.10]: https://github.com/datbird/docky/releases/tag/v1.4.10
