@@ -6,8 +6,8 @@ Model:
   Action - an ordered list of tasks
   Mode   - a named set of actions, activated manually or by auto-dock detection
 
-Config lives at ~/.config/docky/config.json (human-editable).
-Small runtime state (active mode, last dock state) at ~/.config/docky/state.json.
+Config lives at /var/lib/docky/config.json, root-owned (see CONFIG_DIR below).
+Small runtime state (active mode, last dock state) at /var/lib/docky/state.json.
 
 No decky deps -> importable/testable with plain python3.
 """
@@ -29,9 +29,24 @@ import mdns      # keep avahi publishing on so Moonlight can discover Sunshine
 import deckops   # built-in Steam Deck dock fixes (audio/controller/tdp/flatpak)
 from sysenv import clean_env as _clean_env  # strip Decky's PyInstaller LD_LIBRARY_PATH
 
-CONFIG_DIR = os.path.expanduser("~/.config/docky")
+# The config lives OUTSIDE the user's home on purpose. This backend runs as root
+# and a task can run an arbitrary command, so a config the `deck` user can write
+# is a direct path from `deck` to root on the next trigger. Root owns every
+# directory in this chain, the same guarantee sunshine._prepare_bwrap relies on.
+#
+# Root-owning config.json alone would NOT be enough: ~/.config belongs to `deck`,
+# and rename(2) only needs write permission on the parent directory, so the user
+# could swap the whole docky directory for one of their own.
+#
+# The file stays world-readable, so `cat` still works; editing by hand now needs
+# sudo. See docs/configuration.md.
+CONFIG_DIR = "/var/lib/docky"
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 STATE_PATH = os.path.join(CONFIG_DIR, "state.json")
+
+# Pre-1.4.9 location, migrated once on load. Resolved lazily: HOME is pinned to
+# the deck user's home by main.py at import.
+LEGACY_CONFIG_DIR = "~/.config/docky"
 
 DEFAULT_TIMEOUT = 60
 
@@ -221,7 +236,7 @@ def _write_json_atomic(path, obj):
     a handheld gets plenty of) can leave a zero-length or truncated config
     behind the new name. Sync the data, then the directory entry. Saves are
     user-initiated, never in a loop, so the cost is irrelevant."""
-    os.makedirs(CONFIG_DIR, exist_ok=True)
+    _ensure_config_dir()
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2)
@@ -236,9 +251,14 @@ def _write_json_atomic(path, obj):
             os.close(dfd)
     except OSError:
         pass
-    # Keep the config user-owned/editable even though the backend runs as root.
-    _chown_to_parent(CONFIG_DIR)
-    _chown_to_parent(path)
+    # Root-owned, world-readable. Never chown this back to the user: that is the
+    # deck-to-root escalation the CONFIG_DIR comment describes.
+    try:
+        if os.geteuid() == 0:
+            os.chown(path, 0, 0)
+        os.chmod(path, 0o644)
+    except OSError:
+        pass
 
 
 def save_config(cfg):
@@ -283,6 +303,67 @@ def _chown_to_parent(path):
         os.chown(path, st.st_uid, st.st_gid, follow_symlinks=False)
     except OSError:
         pass
+
+
+def _ensure_config_dir():
+    """Create CONFIG_DIR and hold it root-owned 0755.
+
+    Re-asserted on every write, not just at creation, so an upgrade from the old
+    user-owned directory can never leave a writable one behind."""
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    try:
+        if os.geteuid() == 0:
+            os.chown(CONFIG_DIR, 0, 0)
+        os.chmod(CONFIG_DIR, 0o755)
+    except OSError:
+        pass
+
+
+def migrate_legacy_config():
+    """One-time move of config/state out of the user-owned home (pre-1.4.9).
+
+    Run this BEFORE the first load_config(), or load_config() writes a fresh
+    default at the new path and the user's real config is left behind.
+
+    The old files are read and re-written by root rather than copied, so no
+    user-owned inode survives. Whatever was in the old config is trusted exactly
+    as much as it was yesterday: at upgrade time it is what the owner wrote.
+    Each imported file is then renamed to `.migrated`, because a file that still
+    looks live but is no longer read is worse than one that is plainly gone.
+    """
+    moved = []
+    old_dir = _p(LEGACY_CONFIG_DIR)
+    if os.path.islink(old_dir) or not os.path.isdir(old_dir):
+        return moved
+    _ensure_config_dir()
+    for name, new_path in (("config.json", CONFIG_PATH),
+                           ("state.json", STATE_PATH)):
+        old_path = os.path.join(old_dir, name)
+        if os.path.islink(old_path):
+            # The old directory is user-writable, so the "config" waiting there
+            # may be a symlink someone pointed at a root-only file. Reading it
+            # as root and re-writing it world-readable would leak that file.
+            # Retire the link unread.
+            try:
+                os.rename(old_path, old_path + ".migrated")
+            except OSError:
+                _log.exception("docky: could not retire %s", old_path)
+            continue
+        if not os.path.isfile(old_path):
+            continue
+        try:
+            if not os.path.exists(new_path):
+                data = _read_json(old_path, None)
+                if isinstance(data, dict):
+                    _write_json_atomic(new_path, data)
+                    moved.append(name)
+            if os.path.isfile(old_path):
+                # Gone already means _read_json found it corrupt and kept it as
+                # .corrupt for recovery. Leave that copy where it is.
+                os.rename(old_path, old_path + ".migrated")
+        except OSError:
+            _log.exception("docky: could not migrate %s", old_path)
+    return moved
 
 
 def _run_proc(argv, shell=False, cwd=None, timeout=DEFAULT_TIMEOUT, env=None):

@@ -165,6 +165,16 @@ created by file-op tasks are chowned back to their parent's owner; subprocesses
 run with a sanitized environment; script tasks are opt-in. **Treat your config
 like a root cron.** See [Configuration → Security](configuration.md#security).
 
+### The config is root-owned, outside the user's home (1.4.9)
+A task can run an arbitrary command as root, so a config the `deck` user can
+write is a direct path from `deck` to root on the next trigger. `/var/lib/docky`
+is root-owned end to end, the same guarantee the setuid `bwrap` copy already
+relied on. **Root-owning the file under `~/.config` would not have worked:**
+`~/.config` belongs to `deck`, and rename(2) needs write permission on the parent
+only, so the user could swap the whole directory. The cost is that hand-editing
+now needs `sudo`; the panel is unaffected. `migrate_legacy_config()` imports the
+old file once and renames it `.migrated`.
+
 ### `is_running()` (Sunshine) is intentionally **not** cached
 It's polled every 0.25 s inside the Sunshine start/stop wait loops; a TTL cache
 would return stale values and break those loops. A single `pgrep` per state-poll

@@ -181,6 +181,7 @@ Steam's *autostart*; the app-menu launcher and Game Mode are untouched.
   [Streaming ⇄ Desktop](gpu-coexistence.md) for how the two fit together.
 
 ## Reset to a clean slate
-- Config lives in `~/.config/docky/`. Remove `config.json` (and `state.json`) to
+- Config lives in `/var/lib/docky/` (root-owned since 1.4.9, so use `sudo`).
+  Remove `config.json` (and `state.json`) to
   start fresh; they're recreated empty on next load. Uninstalling the plugin does
   **not** delete them.

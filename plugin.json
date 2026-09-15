@@ -1,6 +1,6 @@
 {
   "name": "Docky",
-  "version": "1.4.8",
+  "version": "1.4.9",
   "author": "datbird",
   "flags": ["root"],
   "publish": {

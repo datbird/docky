@@ -172,7 +172,10 @@ Docky's backend runs as **root** (`plugin.json` `flags: ["root"]`) — most of w
 it does (system services, protected paths, managing other processes, the
 streaming-capture helper) needs it. Files created by file-op tasks are chowned
 back to their parent directory's owner so user-space can still read/edit them.
-Script/command tasks therefore run as root; treat your config like a root cron.
+Script/command tasks therefore run as root, so the config itself is root-owned
+and lives at `/var/lib/docky/` (1.4.9; it used to be in `~/.config`). That keeps a
+process running as `deck` from adding a task and escalating. Editing it by hand
+needs `sudo`, the panel does not.
 See [Configuration → Security](docs/configuration.md#security) for details.
 
 ## Contributing

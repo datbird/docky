@@ -7,10 +7,27 @@ this is the reference.
 
 | File | Holds | Touched by install? |
 |---|---|---|
-| `~/.config/docky/config.json` | actions, modes, favorites, trigger mappings, settings | No |
-| `~/.config/docky/state.json` | active mode, trigger baselines, stored Sunshine login token | No |
+| `/var/lib/docky/config.json` | actions, modes, favorites, trigger mappings, settings | No |
+| `/var/lib/docky/state.json` | active mode, trigger baselines, stored Sunshine login token | No |
 
-Both are created on first run (config starts empty). Neither is removed by
+Both are created on first run (config starts empty).
+
+### Why not `~/.config/docky`? (changed in 1.4.9)
+
+The backend runs as root, and a task can run an arbitrary command. A config the
+`deck` user can write is therefore a direct path from `deck` to root on the next
+trigger: any code running as the user adds a `run` task and owns the machine.
+Root now owns `/var/lib/docky` and everything in it, which is the same guarantee
+the setuid `bwrap` copy already relied on.
+
+Root-owning the file inside `~/.config` would not have been enough. `~/.config`
+belongs to `deck`, and renaming a directory only needs write permission on its
+parent, so the user could swap the whole `docky` directory for one of their own.
+
+The files stay world-readable, so `cat` still works. Editing by hand now needs
+`sudo`. On the first load after the update Docky imports an existing
+`~/.config/docky/config.json` (and `state.json`), then renames each one to
+`.migrated` so nothing is left that looks live but is never read. Neither is removed by
 `install.sh` / `uninstall.sh`. If `config.json` is ever unreadable/corrupt, Docky
 logs a warning, moves it aside to `config.json.corrupt`, and starts from defaults
 rather than silently discarding it.
@@ -90,9 +107,14 @@ are the *active* state the background loops enforce.
 The backend runs as **root**, so:
 
 - `bash` / `python` / `run` tasks execute **as root**. Treat your config like a
-  root cron job — anything in it runs with full privileges. They run with a
+  root cron job: anything in it runs with full privileges. They run with a
   sanitized environment (Decky's bundled `LD_LIBRARY_PATH` is stripped) so system
   binaries behave normally.
+- Because of that, **config.json is root-owned and lives outside your home**, at
+  `/var/lib/docky/`. Only root can add a task, so a process running as `deck`
+  cannot use Docky to escalate. Editing by hand needs `sudo`; the panel does not,
+  since it writes through the root backend. Changed in 1.4.9, see
+  [Why not ~/.config/docky?](#why-not-configdocky-changed-in-149).
 - Files created by `copy` / `move` / `write` / `symlink` are chowned to their
   parent directory's owner (usually `deck`), so user-space can still edit them.
 - The Sunshine capture helper is a setuid-root copy of `bwrap` kept under the

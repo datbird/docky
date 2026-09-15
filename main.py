@@ -822,6 +822,17 @@ class Plugin:
     # ---- lifecycle + auto-dock watcher ----
 
     async def _main(self):
+        try:
+            # One-time: move config/state out of the user-owned home to the
+            # root-owned /var/lib/docky. MUST run before the first load_config(),
+            # or that call writes a fresh default at the new path and the user's
+            # real config never gets imported.
+            moved = await asyncio.to_thread(docky.migrate_legacy_config)
+            if moved:
+                decky.logger.info("Docky: migrated %s to %s",
+                                  ", ".join(moved), docky.CONFIG_DIR)
+        except Exception:  # noqa: BLE001
+            decky.logger.exception("config migration failed")
         await asyncio.to_thread(docky.load_config)  # ensure default exists
         try:
             # One-time: retire the removed forceHdr setting (and unlatch HDR if

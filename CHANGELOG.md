@@ -3,6 +3,11 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.9] — 2026-09-15
+
+Move the config to /var/lib/docky to close a deck to root escalation
+config.json and state.json are now root owned and live outside the user home. Script and command tasks run as root, so a config the deck user could write was a free path from deck to root on the next trigger. Root owning only the file was not enough, since ~/.config belongs to deck and a rename needs write permission on the parent directory. An existing config is imported once on first load and the old file is renamed. A symlink left in the old directory is retired unread. Editing by hand now needs sudo, the panel does not.
+
 ## [1.4.8] — 2026-08-06
 
 pumping version to reflack last commit/push
@@ -243,3 +248,4 @@ Profiles" plugin into a general Steam Deck automation tool.
 [1.4.6]: https://github.com/datbird/docky/releases/tag/v1.4.6
 [1.4.7]: https://github.com/datbird/docky/releases/tag/v1.4.7
 [1.4.8]: https://github.com/datbird/docky/releases/tag/v1.4.8
+[1.4.9]: https://github.com/datbird/docky/releases/tag/v1.4.9
