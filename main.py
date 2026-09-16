@@ -868,50 +868,41 @@ class Plugin:
                self._gpu_release_task, self._atoms_task)
         tasks = [t for t in own if t] + list(_bg_tasks)
 
-        # Decky SIGKILLs a plugin 5 s after the stop request, so everything below
-        # runs on a hard budget. Hand the fan back FIRST, directly.
+        # Decky SIGKILLs a plugin 5 s after the stop request, and inside _unload
+        # there is no way to buy time: MEASURED ON-DEVICE, an await here never
+        # resumes. A probe writing straight to a file showed execution reach the
+        # first await and stop there until the SIGKILL, even with a 2.0 s
+        # asyncio.wait timeout, on a call whose work takes 0.02 s. Once Decky has
+        # asked the plugin to stop, the loop no longer ticks, so no timer fires
+        # and no thread result is ever collected.
         #
-        # This used to ride on _fan_watch's CancelledError handler, and that is
-        # not reliable: the watcher spends most of its life inside
-        # `await asyncio.to_thread(_fan_tick, ...)`, and cancelling a thread that
-        # has already started does not interrupt it. The CancelledError is only
-        # delivered once the thread returns, which can be a systemctl call away
-        # (up to 15 s). Past 5 s there is no process left to run the handler, so
-        # the fan stays pinned at Docky's last target with jupiter-fan-control
-        # stopped, which is the exact state the handler exists to prevent.
-        # The handler stays in place as a fallback: handing the fan back twice
-        # costs one `systemctl is-active` and changes nothing.
+        # Everything that MUST happen therefore runs synchronously, inline, first.
+        #
+        # 1. Hand the fan back. A stopped jupiter-fan-control with fan1_target
+        #    still at Docky's last value is the one state an unload must never
+        #    leave behind. This used to ride on _fan_watch's CancelledError
+        #    handler, which cannot work for the same reason: the watcher sits in
+        #    a worker thread, cancellation is only delivered when that thread
+        #    returns, and nothing resumes after the stop request anyway.
+        #    Cost here is one `systemctl is-active`, plus one `systemctl restart`
+        #    only when the daemon is actually stopped: 0.02 s each on the Deck.
         try:
-            await asyncio.wait_for(
-                asyncio.to_thread(docky.fan_handback_if_owned), timeout=2.5)
-        except asyncio.TimeoutError:
-            decky.logger.warning("Docky: fan hand-back did not finish in 2.5s; "
-                                 "the fan may still be under Docky's control")
+            if docky.fan_handback_if_owned():
+                decky.logger.info("Docky: handed the fan back to SteamOS")
         except Exception:  # noqa: BLE001
             decky.logger.exception("Docky: fan hand-back failed")
 
+        # 2. Cancel the watchers. cancel() only REQUESTS cancellation, and their
+        #    handlers will not get to run, but a cancelled task cannot restart
+        #    Sunshine after Docky is gone. Do not await them: see above.
         for task in tasks:
             task.cancel()
-        # cancel() only REQUESTS cancellation: it schedules CancelledError to be
-        # raised at each task's next resumption. Give the watchers a moment to
-        # take it so their own cleanup runs, but keep the whole unload inside
-        # Decky's 5 s budget: 2.5 s for the fan above plus 1.2 s here leaves
-        # room for Decky's own teardown before the SIGKILL.
-        #
-        # A watcher parked in a worker thread will NOT make this deadline, and
-        # that is fine now that the fan hand-back no longer depends on it. Do not
-        # raise this number: a longer wait cannot help (the process is killed at
-        # 5 s), it only delays the log line that says what happened.
-        if tasks:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(*tasks, return_exceptions=True), timeout=1.2)
-            except asyncio.TimeoutError:
-                decky.logger.info("Docky: some watchers were still in a worker "
-                                  "thread at unload; the fan was already handed "
-                                  "back above")
-            except Exception:  # noqa: BLE001
-                decky.logger.exception("Docky: error awaiting watcher shutdown")
+
+        # Sunshine and its bwrap child are deliberately left running. They are
+        # setsid-detached so a plugin_loader restart never interrupts a live
+        # stream, the same thing decky-sunshine does; systemd logging them as
+        # left-over processes is noise, not a leak. An uninstall is the right
+        # place to kill them.
         decky.logger.info("Docky unloaded")
 
     async def _uninstall(self):

@@ -3,6 +3,11 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.11] — 2026-09-15
+
+Make the unload synchronous so the fan hand-back actually runs
+An await inside _unload never resumes. Decky stops ticking the event loop after the stop request, so no timer fires and no thread result is collected, and the plugin is SIGKILLed at 5 seconds. Measured with a probe writing to a file: execution reached the first await and sat there until the kill, even with a 2 second timeout on a call whose work takes 0.02 seconds. The 1.4.10 timeouts bounded nothing. _unload now hands the fan back inline, cancels the watchers and returns without awaiting. Measured on the Deck with jupiter-fan-control stopped first: unload returns in 0.031 seconds and Decky reports stopped in 0.1s with no SIGKILL, against 5.1 seconds before.
+
 ## [1.4.10] — 2026-09-15
 
 Hand the fan back before Decky SIGKILLs the plugin at 5 seconds
@@ -255,3 +260,4 @@ Profiles" plugin into a general Steam Deck automation tool.
 [1.4.8]: https://github.com/datbird/docky/releases/tag/v1.4.8
 [1.4.9]: https://github.com/datbird/docky/releases/tag/v1.4.9
 [1.4.10]: https://github.com/datbird/docky/releases/tag/v1.4.10
+[1.4.11]: https://github.com/datbird/docky/releases/tag/v1.4.11
