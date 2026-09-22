@@ -300,11 +300,10 @@ async def _fan_watch():
             # 2s tick — most ticks just rewrite the target.
             owned = await asyncio.to_thread(_fan_tick, owned, tick % 5 == 0)
         except asyncio.CancelledError:
-            # On unload, hand the fan back so we never leave it stuck (e.g. after
-            # an uninstall). Best-effort and synchronous — the loop is ending, and
-            # an await here could be aborted by a second cancel before it lands.
-            # This only runs at all because _unload() AWAITS the cancelled tasks;
-            # a bare cancel() would let the plugin die with the fan still pinned.
+            # A backstop only. The real unload hand-back runs inline in _unload
+            # (fan_handback_if_owned), because _unload no longer awaits these
+            # tasks and this handler usually never gets to run. It still helps
+            # when the task is cancelled while the plugin keeps running.
             if owned:
                 try:
                     docky.fan_release()

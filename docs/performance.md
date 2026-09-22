@@ -41,7 +41,9 @@ that value on its own poll, so while a curve or manual speed is active Docky sto
 that daemon and a background loop re-applies your target every couple of seconds
 (and re-applies after resume-from-sleep). Switching to **Auto** — or unloading the
 plugin — restarts the daemon so the fan is never left stuck. Targets are clamped
-to a safe ceiling (8000 RPM).
+to a safe ceiling (8000 RPM). A target of **0 RPM turns the fan off**: Docky writes
+10, the value SteamOS itself uses, because a raw 0 hands the fan to the EC's own
+curve on current BIOSes and the fan spins up instead.
 
 ## TDP
 

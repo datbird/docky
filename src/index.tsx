@@ -165,15 +165,26 @@ const SectionHeader: VFC<{ title: string; open: boolean; onToggle: () => void }>
   </DialogButton>
 );
 
+// Which panel sections are expanded. Kept at module level, not in component
+// state, because opening any modal closes the Quick Access menu and unmounts
+// Content: component state reset every section to collapsed after each modal.
+// This lives as long as the plugin is loaded, which is the lifetime wanted.
+const sectionOpen: Record<string, boolean> = {};
+
+function useSectionOpen(key: string): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState<boolean>(!!sectionOpen[key]);
+  return [open, (v: boolean) => { sectionOpen[key] = v; setOpen(v); }];
+}
+
 const Content: VFC = () => {
   const [state, setState] = useState<DockyState | null>(null);
   const [busy, setBusy] = useState<boolean>(false);
   const [msg, setMsg] = useState<string>("");
-  const [favOpen, setFavOpen] = useState<boolean>(false);
-  const [triggersOpen, setTriggersOpen] = useState<boolean>(false);
-  const [fanOpen, setFanOpen] = useState<boolean>(false);
-  const [tdpOpen, setTdpOpen] = useState<boolean>(false);
-  const [sunshineOpen, setSunshineOpen] = useState<boolean>(false);
+  const [favOpen, setFavOpen] = useSectionOpen("favorites");
+  const [triggersOpen, setTriggersOpen] = useSectionOpen("triggers");
+  const [fanOpen, setFanOpen] = useSectionOpen("fan");
+  const [tdpOpen, setTdpOpen] = useSectionOpen("tdp");
+  const [sunshineOpen, setSunshineOpen] = useSectionOpen("sunshine");
   // Local draft for the TDP manual slider (committed on "Apply").
   const [tdpDraft, setTdpDraft] = useState<number | null>(null);
 
@@ -558,6 +569,16 @@ const Content: VFC = () => {
         {!sunshineOpen ? null : (
           <>
             <PanelSectionRow>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "0 4px 4px", fontSize: "0.9em" }}>
+                <span style={{ opacity: 0.75 }}>
+                  {!sun ? "—" : !sun.installed ? "Not installed" : sun.running ? "Running" : "Stopped"}
+                </span>
+                <span style={{ fontWeight: 600 }}>
+                  {sun?.resolvedEngine === "decky-sunshine" ? "decky-sunshine" : sun?.resolvedEngine === "off" ? "Off" : "Docky"}
+                </span>
+              </div>
+            </PanelSectionRow>
+            <PanelSectionRow>
               <Focusable
                 flow-children="horizontal"
                 style={{ display: "flex", gap: "8px" }}
@@ -683,9 +704,10 @@ const Content: VFC = () => {
                       flex: 1,
                       minWidth: 0,
                       padding: "6px 4px",
+                      // Border + weight only; an inline background hides Steam's
+                      // focus background and leaves its dark focus text unreadable.
                       fontWeight: (fan?.mode || "auto") === m ? 700 : 400,
-                      background: (fan?.mode || "auto") === m ? "rgba(91,124,240,0.35)" : "rgba(255,255,255,0.06)",
-                      border: (fan?.mode || "auto") === m ? "1px solid #5b7cf0" : "1px solid transparent",
+                      border: (fan?.mode || "auto") === m ? "2px solid #5b7cf0" : "2px solid transparent",
                     }}
                   >
                     {m === "auto" ? "Auto" : m === "curve" ? "Curve" : "Manual"}

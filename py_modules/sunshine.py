@@ -280,6 +280,12 @@ def version_info():
         "installed": inst,
         "installedVersion": local.get("version", ""),
         "latestVersion": remote.get("version", ""),
+        # Build dates, first 10 chars of flatpak's "Date: 2026-09-15 03:38:33 +0000".
+        # Flathub does not always bump the version string on a rebuild (it said
+        # 2026.516 for a v2026.914 commit), so the date is what tells two builds
+        # with the same version apart.
+        "installedDate": local.get("date", "")[:10],
+        "latestDate": remote.get("date", "")[:10],
         "updateAvailable": bool(inst and ic and lc and ic != lc),
     }
 

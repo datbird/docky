@@ -385,6 +385,12 @@ FAN_SERVICE = "jupiter-fan-control.service"
 # Sane ceiling for the Deck blower (OLED tops ~7300 RPM, LCD ~6300); clamp so a
 # fat-fingered value can't ask the EC for something absurd.
 FAN_MAX_RPM = 8000
+# The lowest target that still means "Docky holds the fan". On current BIOSes a
+# fan1_target of 0 is NOT "off": it is how SteamOS hands the fan back to the EC's
+# own curve (jupiter-fan-control's return_to_ec_control writes 0), so a curve
+# point at 0 RPM ran the fan at ~2900 RPM. SteamOS writes its fan_min_speed, 10,
+# to stop the fan, so every request below that is written as 10.
+FAN_OFF_TARGET = 10
 
 # Built-in starter curve: (temperature °C, target RPM). Gentle ramp that stays
 # quiet at idle and spins up under sustained load. Users edit this in the UI.
@@ -530,7 +536,7 @@ def write_fan_rpm(rpm, stop_daemon=True):
     tgt = _fan_target_path()
     if not tgt:
         return False, "no steamdeck_hwmon fan on this device"
-    r = min(r, FAN_MAX_RPM)
+    r = max(FAN_OFF_TARGET, min(r, FAN_MAX_RPM))
     stopped = False
     if stop_daemon and jupiter_fan_active():
         _fan_service("stop")
@@ -545,6 +551,8 @@ def write_fan_rpm(rpm, stop_daemon=True):
         if stopped:
             _fan_service("restart")
         return False, "could not set fan: %s" % e
+    if r <= FAN_OFF_TARGET:
+        return True, "fan off"
     return True, "fan target %d RPM" % r
 
 

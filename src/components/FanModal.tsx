@@ -184,6 +184,9 @@ export const FanModal: VFC<{
 
   // Plain render helper (not an inline component) so the buttons keep a stable
   // element type across renders and don't remount / drop gamepad focus.
+  // The selected mode is marked with a border and weight only. An inline
+  // background would replace Steam's white focus background but keep its dark
+  // focus text, which made the focused button unreadable.
   const modeButton = (m: FanMode, label: string) => (
     <DialogButton
       disabled={busy}
@@ -191,8 +194,7 @@ export const FanModal: VFC<{
       style={{
         flex: 1, minWidth: 0, padding: "8px 4px",
         fontWeight: mode === m ? 700 : 400,
-        background: mode === m ? "rgba(91,124,240,0.35)" : "rgba(255,255,255,0.06)",
-        border: mode === m ? "1px solid #5b7cf0" : "1px solid transparent",
+        border: mode === m ? "2px solid #5b7cf0" : "2px solid transparent",
       }}
     >
       {label}

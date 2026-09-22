@@ -22,6 +22,8 @@ interface SunshineInfo {
   installed: boolean;
   installedVersion: string;
   latestVersion: string;
+  installedDate?: string;
+  latestDate?: string;
   updateAvailable: boolean;
   engine?: string;
   resolvedEngine?: string;
@@ -416,6 +418,12 @@ const MiniButton: VFC<{ disabled?: boolean; width: string; onClick: () => void; 
     {children}
   </DialogButton>
 );
+
+// "2026.516.143833 (2026-09-15)". The build date matters when Flathub ships a
+// new commit under an unchanged version string.
+function withDate(version: string, date?: string): string {
+  return date ? `${version || "—"} (${date})` : version;
+}
 
 // A label/value row in the Sunshine tab (module-scope so it isn't remounted on
 // every render of the editor).
@@ -890,11 +898,16 @@ export const EditorModal: VFC<{
       : engine !== "auto"
         ? engine
         : deckyInstalled ? "decky-sunshine" : info && info.installed ? "integrated" : "off";
+    // Until sunshine_info answers, `resolved` on Auto is only a guess, and the
+    // guess is "off". Say "checking" instead of telling the user Sunshine isn't
+    // set up for the few seconds the flatpak probe takes.
+    const loading = !info && engine === "auto";
     const integrated = resolved === "integrated";
     const isDecky = resolved === "decky-sunshine";
     const isOff = resolved === "off";
-    const blurb =
-      isDecky
+    const blurb = loading
+      ? "Checking Sunshine…"
+      : isDecky
         ? "Using the decky-sunshine plugin for install/launch/update. Docky's other Sunshine tasks (stop, encoder, composition, pairing) still work on the shared Sunshine."
         : isOff
           ? "Sunshine isn't set up yet. Install & enable it below to let Docky manage it, or install the decky-sunshine plugin and Docky will use that automatically."
@@ -907,7 +920,7 @@ export const EditorModal: VFC<{
         <DropdownItem
           label="Sunshine engine"
           rgOptions={[
-            { data: "auto", label: "Auto" + (engine === "auto" ? " → " + resolved : "") },
+            { data: "auto", label: "Auto" + (engine === "auto" && !loading ? " → " + resolved : "") },
             { data: "integrated", label: "Integrated (Docky)" },
             {
               data: "decky-sunshine",
@@ -937,8 +950,8 @@ export const EditorModal: VFC<{
         ) : (
           <>
             <InfoRow label="Status" value={info.installed ? "Installed" : "Not installed"} />
-            <InfoRow label="Current version" value={info.installedVersion} />
-            <InfoRow label="Latest version" value={info.latestVersion} />
+            <InfoRow label="Current version" value={withDate(info.installedVersion, info.installedDate)} />
+            <InfoRow label="Latest version" value={withDate(info.latestVersion, info.latestDate)} />
             {info.installed ? (
               <div
                 style={{
@@ -987,8 +1000,12 @@ export const EditorModal: VFC<{
         <ToggleField
           label="Start Sunshine at boot"
           description={
-            integrated
+            loading
+              ? "Checking Sunshine…"
+              : integrated
               ? "Launch Sunshine when Docky loads after a reboot"
+              : isOff
+              ? "Sunshine is off in this mode"
               : "Managed by decky-sunshine in this mode"
           }
           checked={integrated && cfg.settings.autostartSunshine !== false}
