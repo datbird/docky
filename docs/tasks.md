@@ -91,8 +91,8 @@ Use a higher value docked (on AC), lower on battery. For it to *stick* against
 Steam's own TDP slider, turn on **Keep enforced** in the panel's TDP section.
 
 ### `release_control` — hand control back to SteamOS
-Disables all Docky hardware control: fan → Auto and the TDP cap lifted to the
-hardware default (enforcement off). No fields. Handy in an "undocked" or
+Disables all Docky hardware control: fan → Auto and the TDP cap reset to the
+kernel's stock default (enforcement off). No fields. Handy in an "undocked" or
 "handheld" mode.
 
 ## Generic operations

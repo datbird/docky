@@ -454,14 +454,15 @@ const Content: VFC = () => {
   const tdp = state.tdp;
   const sun = state.sunshine;
   // TDP label: a saved profile's name, else "Manual" only when Docky is actually
-  // holding a cap — enforcing, or the live cap sits below the hardware max. If
-  // neither, TDP has been handed back to SteamOS (e.g. via release_control, which
-  // clears enforce/profile and lifts the cap to max), so show "SteamOS", not
-  // "Manual".
+  // holding a cap: enforcing, or the live cap differs from the stock cap. If
+  // neither, TDP is at SteamOS's own value (e.g. after release_control, which
+  // clears enforce/profile and resets the cap to the kernel default), so show
+  // "SteamOS". Kernels with no default fall back to comparing against the max.
+  const tdpStock = typeof tdp?.default === "number" ? tdp.default : tdp?.max;
   const tdpLabel = tdp?.profile
     ? (tdpProfiles.find((p) => p.id === tdp.profile)?.name || tdp.profile)
     : (!!tdp?.enforce ||
-        (typeof tdp?.watts === "number" && typeof tdp?.max === "number" && tdp.watts < tdp.max))
+        (typeof tdp?.watts === "number" && typeof tdpStock === "number" && tdp.watts !== tdpStock))
       ? "Manual"
       : "SteamOS";
   const activeName = (() => {
@@ -493,7 +494,7 @@ const Content: VFC = () => {
           <ButtonItem
             layout="below"
             disabled={busy}
-            description="Fan → auto and TDP cap lifted; SteamOS/BIOS defaults take over"
+            description="Fan → auto and TDP back to the stock cap; SteamOS defaults take over"
             onClick={releaseControl}
           >
             ⏏ Hand Fan &amp; TDP control back to SteamOS

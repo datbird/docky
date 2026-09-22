@@ -102,15 +102,17 @@ paths use; the value is saved and applies when that session ends.
 
 ## Performance & hardware
 
-### "Hand control back to SteamOS" lifts the TDP cap to the hardware max, not 15 W
-"Default" here means *uncapped* — hand the budget back to SteamOS/Steam so its own
-(per-game) TDP can manage it. **Why not 15 W:** 15 W is the stock cap, not
-necessarily what Steam or the user wants; forcing it would override Steam's own
-choice. The button is labelled "lifted," not "set to 15 W."
+### "Hand control back to SteamOS" resets the TDP cap to the kernel default
+The cap goes back to `power1_cap_default`, the value a fresh boot gets, not to
+`power1_cap_max`. **Why not the max:** the max is not the stock cap. A stock OLED
+Deck reports a 29 W max against a 15 W default, so writing the max ran the APU
+above stock after a "hand back". Steam's own per-game TDP still works, since Steam
+writes the cap itself when its slider is on. Kernels that expose no default fall
+back to the max. The panel shows "SteamOS" when the live cap equals that default.
 
 ### The TDP profile editor goes to 30 W; the hardware clamps
-`set_tdp` clamps any value to the device's `power1_cap_max` — 15 W on a stock
-Deck, higher on an **unlocked BIOS** (the ceiling varies per unit). **Why allow
+`set_tdp` clamps any value to the device's `power1_cap_max`, which the kernel
+reports per unit (29 W on a stock OLED Deck) and an **unlocked BIOS** raises. **Why allow
 30:** so unlocked-BIOS users can reach their raised ceiling; locked Decks simply
 clamp. (The panel's *manual* slider, by contrast, is bounded by the live max.)
 

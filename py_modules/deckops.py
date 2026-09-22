@@ -331,8 +331,9 @@ def set_tdp(watts):
 
 
 def get_tdp():
-    """Current APU power cap in whole watts plus the max settable, e.g.
-    {"watts": 15, "max": 28}. Empty dict if there's no amdgpu cap."""
+    """Current APU power cap in whole watts, the max settable and the kernel's
+    stock cap, e.g. {"watts": 15, "max": 29, "default": 15}. Empty dict if
+    there's no amdgpu cap."""
     cap = _amdgpu_cap()
     if not cap:
         return {}
@@ -343,24 +344,32 @@ def get_tdp():
     mx = _read_int(cap + "_max")
     if mx is not None:
         out["max"] = int(round(mx / 1_000_000.0))
+    df = _read_int(cap + "_default")
+    if df is not None:
+        out["default"] = int(round(df / 1_000_000.0))
     return out
 
 
 def reset_tdp():
-    """Lift Docky's power cap by restoring it to the hardware max, handing TDP
-    back to SteamOS/Steam. Returns (ok, message)."""
+    """Put the power cap back to the kernel's stock value (power1_cap_default),
+    the same cap a fresh boot gets. Not the max: on a stock OLED Deck the max is
+    29W against a 15W default, so writing the max ran the APU above stock.
+    Falls back to the max only when the kernel exposes no default.
+    Returns (ok, message)."""
     cap = _amdgpu_cap()
     if not cap:
         return False, "no amdgpu power cap on this device"
-    mx = _read_int(cap + "_max")
-    if mx is None:
-        return False, "no power cap max to restore"
+    target = _read_int(cap + "_default")
+    if target is None:
+        target = _read_int(cap + "_max")
+    if target is None:
+        return False, "no default power cap to restore"
     try:
         with open(cap, "w") as f:
-            f.write(str(mx))
+            f.write(str(target))
     except OSError as e:
         return False, "could not reset TDP: %s" % e
-    return True, "TDP reset to default (%dW)" % round(mx / 1_000_000.0)
+    return True, "TDP reset to default (%dW)" % round(target / 1_000_000.0)
 
 
 # ---------------- Fan control + curve engine (steamdeck_hwmon) ----------------

@@ -77,7 +77,7 @@ saving the current fan setup as a profile from the live **Fan control** editor.
 
 The **⏏ Hand control back to SteamOS** button at the top of the panel (and the
 `release_control` [task](tasks.md)) disables *all* Docky hardware control at once:
-fan → Auto and the TDP cap lifted to the hardware default, enforcement off. Use it
+fan → Auto and the TDP cap reset to the kernel's stock default, enforcement off. Use it
 to fully return to stock behavior.
 
 ## Tasks

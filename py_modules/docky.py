@@ -879,6 +879,7 @@ def tdp_status(cfg=None):
         "watts": info.get("watts"),          # current hardware cap
         "setWatts": s.get("tdpWatts", 15),   # configured/last-applied
         "max": info.get("max"),              # None when there's no cap at all
+        "default": info.get("default"),      # kernel stock cap; None if not exposed
         "enforce": bool(s.get("tdpEnforce", False)),
         "profile": s.get("tdpProfile", ""),
         "available": bool(info),

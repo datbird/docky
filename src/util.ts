@@ -94,6 +94,8 @@ export interface TdpStatus {
   // info.get("max"), which is None with no amdgpu cap). The panel reads
   // `tdp?.max || 15`, so null is handled — but the type must admit it.
   max?: number | null;
+  // The kernel's stock cap (power1_cap_default). null when not exposed.
+  default?: number | null;
   enforce?: boolean;
   profile?: string;
   available?: boolean;

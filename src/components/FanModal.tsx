@@ -30,6 +30,10 @@ export const FanModal: VFC<{
   const [busy, setBusy] = useState<boolean>(false);
   const [msg, setMsg] = useState<string>("");
   const [dirty, setDirty] = useState<boolean>(false);
+  // True when the persisted fan mode is already "curve". Without it, picking
+  // Curve from Auto left Save & apply disabled (nothing was dirty), so a saved
+  // curve could not be applied until a point was nudged.
+  const curveActive = cfg?.settings?.fanMode === "curve";
   // Mirror `busy` so the live poll can skip while a save/apply is in flight.
   const busyRef = useRef(false);
   useEffect(() => { busyRef.current = busy; }, [busy]);
@@ -127,7 +131,7 @@ export const FanModal: VFC<{
   function pickMode(m: FanMode) {
     setMode(m);
     if (m === "curve") {
-      setMsg("Edit the curve, then Save & apply.");
+      setMsg(curveActive ? "Edit the curve, then Save & apply." : "Save & apply to run this curve.");
       return;
     }
     save(m, manualRpm);
@@ -255,7 +259,7 @@ export const FanModal: VFC<{
             onPoints={(p) => { setPoints(p); setDirty(true); }}
             onInterpolate={(b) => { setInterpolate(b); setDirty(true); }}
           />
-          <DialogButton disabled={busy || !dirty || !curveOk} onClick={() => save("curve", manualRpm)} style={{ marginTop: "6px" }}>
+          <DialogButton disabled={busy || (!dirty && curveActive) || !curveOk} onClick={() => save("curve", manualRpm)} style={{ marginTop: "6px" }}>
             Save & apply curve
           </DialogButton>
         </div>

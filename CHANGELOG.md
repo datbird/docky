@@ -3,6 +3,10 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.12] — 2026-09-22
+
+Hand back TDP to the stock cap, and let a saved fan curve apply without an edit
+
 ## [1.4.11] — 2026-09-15
 
 Make the unload synchronous so the fan hand-back actually runs
@@ -261,3 +265,4 @@ Profiles" plugin into a general Steam Deck automation tool.
 [1.4.9]: https://github.com/datbird/docky/releases/tag/v1.4.9
 [1.4.10]: https://github.com/datbird/docky/releases/tag/v1.4.10
 [1.4.11]: https://github.com/datbird/docky/releases/tag/v1.4.11
+[1.4.12]: https://github.com/datbird/docky/releases/tag/v1.4.12
