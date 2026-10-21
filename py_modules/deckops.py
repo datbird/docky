@@ -112,15 +112,20 @@ def set_audio_output(target):
     if not match:
         return False, "no audio device matching '%s'" % target
     q = shlex.quote(match)  # sink names come from pactl but quote defensively
+    # PipeWire refuses a sink whose port is unplugged (headphones with nothing in
+    # the jack) without an error, so read the default back before moving streams.
     script = (
         "pactl set-default-sink %s || exit 1; "
+        "[ \"$(pactl get-default-sink)\" = %s ] || exit 3; "
         "pactl list short sink-inputs | cut -f1 | "
         "while read -r i; do "
         "case \"$i\" in ''|*[!0-9]*) continue ;; esac; "
         "pactl move-sink-input \"$i\" %s || echo FAIL; "
         "done"
-    ) % (q, q)
+    ) % (q, q, q)
     code, out, err = _su_deck(script)
+    if code == 3:
+        return False, "%s output isn't available (is it plugged in?)" % target
     if code != 0:
         return False, (err or "could not set default sink").strip()[:200]
     moved_fail = out.split().count("FAIL")

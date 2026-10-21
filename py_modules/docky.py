@@ -305,6 +305,24 @@ def _chown_to_parent(path):
         pass
 
 
+def _makedirs_like_parent(path):
+    """os.makedirs, except each directory it creates is handed to its parent's
+    owner the way _chown_to_parent hands over a file. Otherwise a copy, move or
+    write into a missing folder under /home/deck leaves a root-owned folder, and
+    the file inside it root-owned too, that the deck user can't edit or delete."""
+    path = os.path.abspath(path or ".")
+    missing = []
+    while not os.path.exists(path):
+        missing.append(path)
+        path = os.path.dirname(path)
+    for d in reversed(missing):
+        try:
+            os.mkdir(d)
+        except FileExistsError:
+            continue  # raced into existence; leave its owner alone
+        _chown_to_parent(d)
+
+
 def _ensure_config_dir():
     """Create CONFIG_DIR and hold it root-owned 0755.
 
@@ -404,14 +422,14 @@ def run_task(task, allow_running_emu=True):
 
         elif t == "copy":
             src, dest = _p(task["src"]), _p(task["dest"])
-            os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+            _makedirs_like_parent(os.path.dirname(dest))
             shutil.copy2(src, dest)
             _chown_to_parent(dest)
             r.update(ok=True, message="copied -> %s" % dest)
 
         elif t == "move":
             src, dest = _p(task["src"]), _p(task["dest"])
-            os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+            _makedirs_like_parent(os.path.dirname(dest))
             shutil.move(src, dest)
             _chown_to_parent(dest)
             r.update(ok=True, message="moved -> %s" % dest)
@@ -431,7 +449,7 @@ def run_task(task, allow_running_emu=True):
 
         elif t == "write":
             path = _p(task["path"])
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            _makedirs_like_parent(os.path.dirname(path))
             with open(path, "w", encoding="utf-8") as f:
                 f.write(task.get("content", ""))
             if task.get("mode"):
@@ -476,17 +494,20 @@ def run_task(task, allow_running_emu=True):
                 ok, msg = False, "run task needs 'argv' or 'command'"
             r.update(ok=ok, message=msg)
 
+        # Through the same entry points as the panel buttons, which record
+        # whether the user wants Sunshine off. A bare stop() here left that
+        # flag clear, and the watchdog relaunched Sunshine seconds later.
         elif t == "sunshine_start":
-            ok, msg = _eng_start()
-            r.update(ok=ok, message=msg)
+            res = sunshine_start()
+            r.update(ok=res["ok"], message=res["message"])
 
         elif t == "sunshine_stop":
-            ok, msg = sunshine.stop()
-            r.update(ok=ok, message=msg)
+            res = sunshine_stop()
+            r.update(ok=res["ok"], message=res["message"])
 
         elif t == "sunshine_restart":
-            ok, msg = _eng_restart()
-            r.update(ok=ok, message=msg)
+            res = sunshine_restart()
+            r.update(ok=res["ok"], message=res["message"])
 
         elif t == "sunshine_composition":
             ok, msg = sunshine.apply_composition(_task_mode(task))

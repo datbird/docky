@@ -3,6 +3,10 @@
 All notable changes to Docky are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.14] — 2026-10-20
+
+Found 3 bugs relating to folder ownership/perms, headphone switching features and the Stop Sunshine button not working properly. This PR resolves all 3 of these issues the issues. 
+
 ## [1.4.13] — 2026-09-22
 
 Stop the fan for 0 RPM, readable focused fan buttons, and panel fixes from a UI pass
@@ -271,3 +275,4 @@ Profiles" plugin into a general Steam Deck automation tool.
 [1.4.11]: https://github.com/datbird/docky/releases/tag/v1.4.11
 [1.4.12]: https://github.com/datbird/docky/releases/tag/v1.4.12
 [1.4.13]: https://github.com/datbird/docky/releases/tag/v1.4.13
+[1.4.14]: https://github.com/datbird/docky/releases/tag/v1.4.14
